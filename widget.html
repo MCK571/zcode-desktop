@@ -1127,9 +1127,10 @@
     function renderTasks(tasks) {
       const area = document.getElementById('taskArea');
       if (!tasks || !tasks.length) { area.innerHTML = '<div class="empty">今天暂无任务</div>'; return; }
-      // 只显示今天创建的任务
+      // 显示今天创建 或 今天有更新（在历史任务里继续对话）的任务
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const recent = tasks.filter(t => (t.createdAt || 0) >= todayStart.getTime());
+      const ts = todayStart.getTime();
+      const recent = tasks.filter(t => (t.createdAt || 0) >= ts || (t.updatedAt || 0) >= ts);
       if (!recent.length) { area.innerHTML = '<div class="empty">今天暂无任务</div>'; return; }
       area.innerHTML = recent.map((t, idx) => {
         const status = t.status || 'idle';
