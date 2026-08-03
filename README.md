@@ -1,6 +1,6 @@
 # ZCode 用量监控桌面组件
 
-一个轻量的桌面悬浮小组件，用于实时监控 [ZCode](https://zcode.app) 智能体的运行状态与 token 用量。基于 `pywebview` 实现无边框、置顶的桌面悬浮窗，每 2 秒刷新一次本地数据。
+一个轻量的桌面悬浮小组件，用于实时监控 [ZCode](https://zcode.app) 智能体的运行状态与 token 用量。基于 `pywebview` 实现无边框、置顶的桌面悬浮窗，每 1.5 秒刷新一次本地数据。
 
 ![ZCode 用量监控组件预览](docs/widget-preview-v2.jpg)
 
@@ -13,7 +13,10 @@
 组件在一个紧凑的悬浮窗内展示三类信息：
 
 - **模型用量** — 今日 / 本周 / 累计的输入、输出、缓存读取、推理 token 数与请求次数，按模型分解。数据来自 ZCode 本地持久化的 `model_usage` 表（与 ZCode 设置面板中"今日 / 累计"一致）。
-- **云端套餐额度**（可选）— 读取火山方舟 OpenAPI 的 CodingPlan（编程套餐）各窗口（会话 / 每周 / 每月）的已用百分比与重置时间。配置 `VOLC_PLAN_START` 后还会**倒推各窗口内的本地 token 明细**，悬浮显示该窗口内各模型的消耗总计与占比。未配置凭证时该区块自动隐藏。
+- **云端额度**（可选）- 区域顶部 tab 切换两个厂商：
+  - **火山方舟**：读取 CodingPlan（编程套餐）各窗口（会话 / 每周 / 每月）的已用百分比与重置时间。配置 `VOLC_PLAN_START` 后还会**倒推各窗口内的本地 token 明细**，悬浮显示该窗口内各模型的消耗总计与占比。
+  - **DeepSeek**：展示账户余额（CNY，调 `/user/balance` 接口），以及今日 / 近7天 / 近30天的 token 用量（按 provider 从本地 `model_usage` 聚合）。apiKey 复用 ZCode config.json 里已配的 DeepSeek provider，无需额外配置。
+  - 未配置任一厂商凭证时，对应 tab 仍可点击但提示未配置；两个都未配置时整个区域自动隐藏。
 - **任务列表** — 最近执行的 ZCode 任务，显示标题、状态、模型、时间，点击可一键在 ZCode 中打开对应工作区。
 
 此外还支持：窗口拖拽、置顶悬浮、点击右上角或 Z 图标折叠 / 展开面板、实时活动日志（当前正在执行的工具调用与最近事件流）。
@@ -27,7 +30,9 @@
 | 任务索引 | `~/.zcode/v2/tasks-index.sqlite` | 当前 / 运行中任务与最近任务列表 |
 | token 用量 | `~/.zcode/cli/db/db.sqlite`（`model_usage` 表） | 本地持久累计的 token 计数，权威来源 |
 | 实时活动 | `~/.zcode/cli/log/zcode-<date>.jsonl` | 工具调用 / 模型活动事件流 |
-| 云端套餐 | 火山方舟 OpenAPI | 只读查询，需自行配置凭证 |
+| 云端额度-火山 | 火山方舟 OpenAPI | 只读查询，需自行配置凭证 |
+| 云端额度-DeepSeek 余额 | DeepSeek `/user/balance` | 只读查询，apiKey 复用 config.json |
+| 云端额度-DeepSeek token | `~/.zcode/cli/db/db.sqlite`（`model_usage` 表） | 按 provider 聚合，与本地 token 同源 |
 
 ## 环境要求
 
@@ -107,7 +112,7 @@ pyinstaller --onefile --windowed --name zcodeDesktop --icon icon.ico \
   --add-data "widget.html;." --add-data "icon.ico;." widget.py
 ```
 
-生成的 exe 在 `dist/zcodeDesktop.exe`（约 17 MB，依赖 Windows 自带的 WebView2 运行时）。
+生成的 exe 在 `dist/zcodeDesktop.exe`（约 21 MB，依赖 Windows 自带的 WebView2 运行时）。
 
 ## 项目结构
 
