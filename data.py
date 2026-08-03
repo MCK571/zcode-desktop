@@ -129,6 +129,15 @@ for _fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-
 del _VOLC_PLAN_START_RAW
 
 
+# ---- DeepSeek（自带 key 的第三方 provider）用量查询 ----
+# DeepSeek 的 apiKey 存在 config.json 的 provider.options.apiKey（非环境变量）。
+# token 用量从本地 model_usage 表按 provider_id 聚合（今日/7天/30天三窗口）；
+# 余额走 DeepSeek 官方 GET /user/balance，后台线程缓存（与火山同模式），
+# status() 路径零网络，不会被余额查询阻塞。
+DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
+DEEPSEEK_CACHE_TTL = 60.0
+
+
 def _load_config() -> dict:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -151,6 +160,36 @@ def _provider_plan_ids() -> set[str]:
         if "/plan" in url or "plan" in name:
             out.add(pid)
     return out
+
+
+def _deepseek_provider_ids() -> set[str]:
+    """返回 config.json 里所有 DeepSeek provider 的 provider_id。
+
+    判定：provider_id 或 name 含 "deepseek"。DeepSeek 官方 baseURL 是
+    api.deepseek.com，自带 key（非火山 plan），用户可配多个（不同 key）。
+    """
+    cfg = _load_config()
+    out: set[str] = set()
+    for pid, info in cfg.get("provider", {}).items():
+        name = (info.get("name", "") or "").lower()
+        if "deepseek" in pid.lower() or "deepseek" in name:
+            out.add(pid)
+    return out
+
+
+def _deepseek_api_key() -> str:
+    """从 config.json 读第一个 DeepSeek provider 的 apiKey（无则空串）。
+
+    余额查询只需任一有效 key，取配置里第一个 deepseek provider 的 key 即可。
+    """
+    cfg = _load_config()
+    for pid, info in cfg.get("provider", {}).items():
+        name = (info.get("name", "") or "").lower()
+        if "deepseek" in pid.lower() or "deepseek" in name:
+            key = (info.get("options", {}) or {}).get("apiKey", "") or ""
+            if key:
+                return key
+    return ""
 
 
 def _read_tasks() -> list[dict]:
@@ -412,7 +451,76 @@ def _empty_usage() -> dict:
     }
 
 
-# ---- 火山方舟 OpenAPI 调用（SigV4 签名） ----
+def _read_deepseek_usage() -> dict:
+    """聚合本地 model_usage 表里 DeepSeek provider 的 token 用量。
+
+    与 _read_usage() 同源（都读 model_usage 表），但按 provider_id 过滤到
+    DeepSeek provider，聚合今日/近7日/近30日三窗口。无 DeepSeek provider
+    或无记录时返回零值结构。前端 DeepSeek tab 据此渲染 token 计数。
+    """
+    pids = _deepseek_provider_ids()
+    zero = {"totalTokens": 0, "inputTokens": 0, "outputTokens": 0, "requests": 0}
+    if not pids or not MODEL_USAGE_DB.exists():
+        return {"enabled": bool(pids), "today": dict(zero), "week": dict(zero), "month": dict(zero)}
+
+    now = datetime.datetime.now()
+    today_start_ms = int(
+        datetime.datetime.combine(now.date(), datetime.time.min).timestamp() * 1000
+    )
+    week_ago_ms = today_start_ms - 7 * _MS_PER_DAY
+    month_ago_ms = today_start_ms - 30 * _MS_PER_DAY
+
+    try:
+        conn = sqlite3.connect(f"file:{MODEL_USAGE_DB}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        ok = "status = 'completed'"
+        placeholders = ",".join("?" for _ in pids)
+
+        def _sum(where: str, params=()):
+            cur.execute(
+                f"""SELECT COALESCE(SUM(input_tokens),0) AS ti,
+                           COALESCE(SUM(output_tokens),0) AS toks,
+                           COALESCE(SUM(computed_total_tokens),0) AS tt,
+                           COUNT(*) AS reqs
+                    FROM model_usage WHERE {where}""",
+                params,
+            )
+            return cur.fetchone()
+
+        today_row = _sum(
+            f"{ok} AND completed_at >= ? AND provider_id IN ({placeholders})",
+            (today_start_ms, *pids),
+        )
+        week_row = _sum(
+            f"{ok} AND completed_at >= ? AND provider_id IN ({placeholders})",
+            (week_ago_ms, *pids),
+        )
+        month_row = _sum(
+            f"{ok} AND completed_at >= ? AND provider_id IN ({placeholders})",
+            (month_ago_ms, *pids),
+        )
+        conn.close()
+    except Exception:
+        return {"enabled": bool(pids), "today": dict(zero), "week": dict(zero), "month": dict(zero)}
+
+    def _pack(r):
+        return {
+            "totalTokens": r["tt"],
+            "inputTokens": r["ti"],
+            "outputTokens": r["toks"],
+            "requests": r["reqs"],
+        }
+
+    return {
+        "enabled": True,
+        "today": _pack(today_row),
+        "week": _pack(week_row),
+        "month": _pack(month_row),
+    }
+
+
+# ---- DeepSeek 余额查询（后台线程 + 缓存，与火山同模式） ----
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -757,6 +865,109 @@ def start_volc_refresher() -> None:
     t.start()
 
 
+# ---- DeepSeek 余额查询（后台线程 + 缓存，与火山同模式） ----
+# _DS_CACHE: [timestamp, payload]，由后台线程写入，status() 只读。
+_DS_CACHE: list = [0.0, None]
+_DS_REFRESHER_STARTED = False
+
+
+def _ds_refresh_once() -> None:
+    """执行一次 DeepSeek 余额查询并更新 _DS_CACHE。仅由后台线程调用。
+
+    DeepSeek /user/balance 是简单 GET，返回 balance_infos 数组（CNY/USD 各一条）。
+    失败时复用旧缓存（与火山同策略），旧缓存也无则写带 error 的空结构。
+    """
+    api_key = _deepseek_api_key()
+    if not api_key:
+        # 未配置 DeepSeek provider：写 enabled=False 空结构（幂等）。
+        empty = {
+            "enabled": False,
+            "balance": "",
+            "currency": "",
+            "isAvailable": False,
+            "error": "",
+            "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        _DS_CACHE[0] = datetime.datetime.now().timestamp()
+        _DS_CACHE[1] = empty
+        return
+
+    try:
+        resp = requests.get(
+            DEEPSEEK_BALANCE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=3,
+        )
+        data = resp.json()
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code}")
+        # balance_infos 是数组，优先取 currency=="CNY"，回退取第一条。
+        infos = data.get("balance_infos") or []
+        info = next((i for i in infos if i.get("currency") == "CNY"), infos[0] if infos else {})
+        result = {
+            "enabled": True,
+            "balance": info.get("total_balance", ""),
+            "currency": info.get("currency", "CNY"),
+            "isAvailable": bool(data.get("is_available", False)),
+            "error": "",
+            "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        _DS_CACHE[0] = datetime.datetime.now().timestamp()
+        _DS_CACHE[1] = result
+    except Exception:
+        # 失败：复用旧缓存（若有效），否则写带 error 的空结构。
+        cached_old = _DS_CACHE[1]
+        if cached_old is not None and cached_old.get("enabled") and cached_old.get("balance") != "":
+            return
+        empty = {
+            "enabled": True,
+            "balance": "",
+            "currency": "",
+            "isAvailable": False,
+            "error": "查询失败",
+            "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        _DS_CACHE[0] = datetime.datetime.now().timestamp()
+        _DS_CACHE[1] = empty
+
+
+def _ds_refresher_loop() -> None:
+    """DeepSeek 余额后台守护线程主循环，与 _volc_refresher_loop 同构。"""
+    import time
+    while True:
+        try:
+            _ds_refresh_once()
+        except Exception:
+            pass
+        time.sleep(DEEPSEEK_CACHE_TTL)
+
+
+def start_ds_refresher() -> None:
+    """启动 DeepSeek 余额后台刷新线程（幂等，daemon）。"""
+    global _DS_REFRESHER_STARTED
+    if _DS_REFRESHER_STARTED:
+        return
+    _DS_REFRESHER_STARTED = True
+    import threading
+    t = threading.Thread(target=_ds_refresher_loop, name="ds-refresher", daemon=True)
+    t.start()
+
+
+def _read_deepseek_balance() -> dict:
+    """纯读 DeepSeek 余额缓存，永不阻塞、永不走网络。"""
+    cached = _DS_CACHE[1]
+    if cached is not None:
+        return cached
+    return {
+        "enabled": bool(_deepseek_api_key()),
+        "balance": "",
+        "currency": "",
+        "isAvailable": False,
+        "error": "",
+        "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def _read_plan_usage() -> dict:
     """读取火山方舟套餐的云端用量（纯读缓存，永不阻塞、永不走网络）。
 
@@ -1059,6 +1270,8 @@ class Api:
             "recentTasks": tasks[:8],
             "usage": _read_usage(),
             "planUsage": _read_plan_usage(),
+            "deepseekUsage": _read_deepseek_usage(),
+            "deepseekBalance": _read_deepseek_balance(),
             "live": _read_live_activity(),
             "now": datetime.datetime.now().strftime("%H:%M:%S"),
         }

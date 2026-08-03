@@ -335,6 +335,10 @@ def main() -> None:
     # 组件卡在"重连中"的问题。线程幂等启动，daemon=True 随进程退出。
     from data import start_volc_refresher
     start_volc_refresher()
+    # 启动 DeepSeek 余额后台刷新线程（与火山同模式，daemon，幂等）。
+    # 余额查询走 GET /user/balance，缓存 60s，status() 路径零网络。
+    from data import start_ds_refresher
+    start_ds_refresher()
 
     html_path = os.path.join(HERE, "widget.html")
 

@@ -276,6 +276,71 @@
       padding: 2px 8px;
       border-radius: 20px;
       border: 1px solid rgba(79, 209, 197, 0.18);
+      margin-left: 8px;  /* 离左侧 sec-title 文字留间距 */
+    }
+
+    /* provider tab 切换：火山 / DeepSeek。沿用 .sec-badge 的胶囊形与字号，
+       激活态用 --accent 高亮，与 collapse-btn:hover 一致。 */
+    .sec-tabs {
+      display: flex;
+      gap: 3px;
+      margin-left: auto;
+    }
+
+    .sec-tab {
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text2);
+      cursor: pointer;
+      transition: all .15s;
+      font-family: inherit;
+    }
+
+    .sec-tab:hover {
+      border-color: var(--border2);
+      color: var(--text);
+    }
+
+    .sec-tab.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    /* DeepSeek 视图：余额大字 + 三窗口 token 网格，复用 .stat 卡片 */
+    .ds-balance {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      margin-bottom: 11px;
+    }
+
+    .ds-bal-label {
+      font-size: 11.5px;
+      color: var(--text3);
+    }
+
+    .ds-bal-val {
+      font-size: 22px;
+      font-weight: 720;
+      letter-spacing: -0.3px;
+      color: var(--accent2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ds-bal-sub {
+      font-size: 11px;
+      color: var(--text3);
+      margin-left: auto;
+    }
+
+    .ds-note {
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 8px;
     }
 
     .usage-total {
@@ -889,14 +954,48 @@
       </div>
     </div>
 
-    <!-- cloud plan quota (火山方舟 CodingPlan) -->
+    <!-- cloud quota (火山方舟 CodingPlan / DeepSeek，tab 切换) -->
     <div class="section" id="planSection" style="display:none">
       <div class="sec-head">
-        <div class="sec-title">云端套餐额度</div>
+        <div class="sec-title">云端额度</div>
         <div class="sec-badge" id="planBadge">--</div>
+        <div class="sec-tabs" id="providerTabs">
+          <button class="sec-tab active" data-prov="volc">火山</button>
+          <button class="sec-tab" data-prov="deepseek">DeepSeek</button>
+        </div>
       </div>
-      <div class="plan-list" id="planList"></div>
-      <div class="plan-note" id="planNote"></div>
+      <!-- 火山视图 -->
+      <div id="planBody">
+        <div class="plan-list" id="planList"></div>
+        <div class="plan-note" id="planNote"></div>
+      </div>
+      <!-- DeepSeek 视图 -->
+      <div id="deepseekBody" style="display:none">
+        <div class="ds-balance">
+          <span class="ds-bal-label">余额</span>
+          <span class="ds-bal-val" id="dsBalance">--</span>
+          <span class="ds-bal-sub" id="dsBalSub"></span>
+        </div>
+        <div class="usage-grid">
+          <div class="stat in">
+            <div class="k">今日 Input</div>
+            <div class="v" id="dsTodayIn">0</div>
+          </div>
+          <div class="stat out">
+            <div class="k">今日 Output</div>
+            <div class="v" id="dsTodayOut">0</div>
+          </div>
+          <div class="stat">
+            <div class="k">近7天</div>
+            <div class="v" id="dsWeek">0</div>
+          </div>
+          <div class="stat">
+            <div class="k">近30天</div>
+            <div class="v" id="dsMonth">0</div>
+          </div>
+        </div>
+        <div class="ds-note" id="dsNote"></div>
+      </div>
     </div>
 
     <!-- current task + live activity -->
@@ -934,6 +1033,8 @@
     // 是否已完成首次成功渲染。失败时若已渲染过，保留上次数据不动，避免界面
     // 残留 #initStatus 的"已连接，读取数据…"或被清空。
     let firstRenderDone = false;
+    // 当前云端额度 tab：'volc'（火山套餐）或 'deepseek'。默认火山，与原行为一致。
+    let _provider = 'volc';
 
     const fmt = (n) => {
       if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
@@ -979,6 +1080,7 @@
         ]);
         renderUsage(s.usage);
         renderPlanUsage(s.planUsage);
+        renderDeepseek(s.deepseekUsage, s.deepseekBalance);
         renderTasks(s.recentTasks);
         renderClock(s.now);
         firstRenderDone = true;
@@ -1100,6 +1202,54 @@
       const note = document.getElementById('planNote');
       note.textContent = p.error ? ('⚠ ' + p.error) : ('更新于 ' + (p.updatedAt || '').slice(11, 19) + ' · 数据来源: 火山方舟 OpenAPI');
     }
+
+    function renderDeepseek(usage, balance) {
+      // DeepSeek tab 的渲染：余额 + 今日 in/out + 近7/30天 token。
+      // section 显隐由 _provider 决定（switchProvider 控制），这里只填数据。
+      const balEl = document.getElementById('dsBalance');
+      const balSub = document.getElementById('dsBalSub');
+      const note = document.getElementById('dsNote');
+
+      // 余额：后端返回字符串金额（如 "1.16"），currency 为 CNY/USD。
+      if (balance && balance.enabled && balance.balance !== '') {
+        const cur = balance.currency === 'USD' ? '$' : '¥';
+        balEl.textContent = cur + balance.balance;
+        balSub.textContent = balance.isAvailable ? '' : '余额不足';
+      } else {
+        balEl.textContent = '--';
+        balSub.textContent = balance && balance.error ? balance.error : (balance && balance.enabled ? '查询中…' : '未配置');
+      }
+
+      // token 三窗口：今日/近7天/近30天
+      const u = usage || {};
+      const today = u.today || {}, week = u.week || {}, month = u.month || {};
+      document.getElementById('dsTodayIn').innerHTML = fmt(today.inputTokens || 0) + ' <small>tk</small>';
+      document.getElementById('dsTodayOut').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
+      document.getElementById('dsWeek').innerHTML = fmt(week.totalTokens || 0) + ' <small>tk</small>';
+      document.getElementById('dsMonth').innerHTML = fmt(month.totalTokens || 0) + ' <small>tk</small>';
+
+      const ts = (balance && balance.updatedAt) ? balance.updatedAt : '';
+      note.textContent = u.enabled
+        ? ('更新于 ' + ts.slice(11, 19) + ' · token 来源: 本地 model_usage')
+        : '未配置 DeepSeek provider（在 ZCode 设置里添加 apiKey）';
+    }
+
+    // 切换云端额度 tab：volc <-> deepseek，互斥显隐两块 body。
+    function switchProvider(prov) {
+      _provider = prov;
+      document.querySelectorAll('#providerTabs .sec-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.prov === prov);
+      });
+      document.getElementById('planBody').style.display = (prov === 'volc') ? '' : 'none';
+      document.getElementById('deepseekBody').style.display = (prov === 'deepseek') ? '' : 'none';
+      // planBadge 是火山专属概念（套餐档位），DeepSeek 下隐藏。
+      document.getElementById('planBadge').style.display = (prov === 'volc') ? '' : 'none';
+    }
+
+    document.getElementById('providerTabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('.sec-tab');
+      if (btn && btn.dataset.prov) switchProvider(btn.dataset.prov);
+    });
 
     // 重置倒计时：短窗口(会话/5小时)显示"X小时Y分钟后"，周/月显示"X天X小时后"。
     function fmtResetCountdown(key, resetMs) {
