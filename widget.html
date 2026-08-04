@@ -961,6 +961,7 @@
         <div class="sec-badge" id="planBadge">--</div>
         <div class="sec-tabs" id="providerTabs">
           <button class="sec-tab active" data-prov="volc">火山</button>
+          <button class="sec-tab" data-prov="opencode">opencode</button>
           <button class="sec-tab" data-prov="deepseek">DeepSeek</button>
         </div>
       </div>
@@ -968,6 +969,28 @@
       <div id="planBody">
         <div class="plan-list" id="planList"></div>
         <div class="plan-note" id="planNote"></div>
+      </div>
+      <!-- opencode 视图（无余额 API，仅本地 token 用量） -->
+      <div id="opencodeBody" style="display:none">
+        <div class="ds-note" style="margin-bottom:8px">opencode 无余额查询 API，仅展示本地 token 用量</div>
+        <div class="usage-grid">
+          <div class="stat in">
+            <div class="k">今日 Input</div>
+            <div class="v" id="ocTodayIn">0</div>
+          </div>
+          <div class="stat out">
+            <div class="k">今日 Output</div>
+            <div class="v" id="ocTodayOut">0</div>
+          </div>
+          <div class="stat">
+            <div class="k">近7天</div>
+            <div class="v" id="ocWeek">0</div>
+          </div>
+          <div class="stat">
+            <div class="k">近30天</div>
+            <div class="v" id="ocMonth">0</div>
+          </div>
+        </div>
       </div>
       <!-- DeepSeek 视图 -->
       <div id="deepseekBody" style="display:none">
@@ -1080,7 +1103,8 @@
         ]);
         renderUsage(s.usage);
         renderPlanUsage(s.planUsage);
-        renderDeepseek(s.deepseekUsage, s.deepseekBalance);
+        renderProviderUsage(s.deepseekUsage, s.deepseekBalance, {});
+        renderOpencode(s.opencodeUsage);
         renderTasks(s.recentTasks);
         renderClock(s.now);
         firstRenderDone = true;
@@ -1155,12 +1179,12 @@
       if (!p || !p.enabled) { section.style.display = 'none'; return; }
       section.style.display = '';
 
-      // 套餐档位 badge：优先用用户配置的 tier，否则显示套餐类型名。
+      // 套餐档位 badge：优先用用户配置的 tier（如 Pro），否则显示套餐类型名。
       // 注意接口的 rawStatus(Running 等)是运行状态、非档位，不在这里展示。
       const badge = document.getElementById('planBadge');
       const isCoding = (p.planType || 'coding') === 'coding';
-      const planName = isCoding ? '编程套餐' : 'AgentPlan';
-      badge.textContent = p.tier ? (planName + '·' + p.tier) : planName;
+      const planName = isCoding ? 'CodingPlan' : 'AgentPlan';
+      badge.textContent = p.tier ? p.tier : planName;
 
       // 各窗口用量进度条
       // - coding: 只有百分比 -> "X% 已用 / 剩余 Y%"
@@ -1203,21 +1227,23 @@
       note.textContent = p.error ? ('⚠ ' + p.error) : ('更新于 ' + (p.updatedAt || '').slice(11, 19) + ' · 数据来源: 火山方舟 OpenAPI');
     }
 
-    function renderDeepseek(usage, balance) {
-      // DeepSeek tab 的渲染：余额 + 今日 in/out + 近7/30天 token。
+    function renderProviderUsage(usage, balance, opts) {
+      // 云端额度 tab 的渲染（opencode/DeepSeek 共用）：token 三窗口 + 余额。
+      // opts.noBalance=true 表示该厂商无余额 API（opencode），余额格显示「—」。
       // section 显隐由 _provider 决定（switchProvider 控制），这里只填数据。
+      const opts2 = opts || {};
       const balEl = document.getElementById('dsBalance');
       const balSub = document.getElementById('dsBalSub');
       const note = document.getElementById('dsNote');
 
       // 余额：后端返回字符串金额（如 "1.16"），currency 为 CNY/USD。
-      if (balance && balance.enabled && balance.balance !== '') {
+      if (!opts2.noBalance && balance && balance.enabled && balance.balance !== '') {
         const cur = balance.currency === 'USD' ? '$' : '¥';
         balEl.textContent = cur + balance.balance;
         balSub.textContent = balance.isAvailable ? '' : '余额不足';
       } else {
-        balEl.textContent = '--';
-        balSub.textContent = balance && balance.error ? balance.error : (balance && balance.enabled ? '查询中…' : '未配置');
+        balEl.textContent = opts2.noBalance ? '—' : '--';
+        balSub.textContent = opts2.noBalance ? '无余额 API' : (balance && balance.error ? balance.error : (balance && balance.enabled ? '查询中…' : '未配置'));
       }
 
       // token 三窗口：今日/近7天/近30天
@@ -1231,18 +1257,29 @@
       const ts = (balance && balance.updatedAt) ? balance.updatedAt : '';
       note.textContent = u.enabled
         ? ('更新于 ' + ts.slice(11, 19) + ' · token 来源: 本地 model_usage')
-        : '未配置 DeepSeek provider（在 ZCode 设置里添加 apiKey）';
+        : '未配置该 provider（在 ZCode 设置里添加 apiKey）';
     }
 
-    // 切换云端额度 tab：volc <-> deepseek，互斥显隐两块 body。
+    // 渲染 opencode tab（无余额，token 填 opencode 专属元素）。
+    function renderOpencode(usage) {
+      const u = usage || {};
+      const today = u.today || {}, week = u.week || {}, month = u.month || {};
+      document.getElementById('ocTodayIn').innerHTML = fmt(today.inputTokens || 0) + ' <small>tk</small>';
+      document.getElementById('ocTodayOut').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
+      document.getElementById('ocWeek').innerHTML = fmt(week.totalTokens || 0) + ' <small>tk</small>';
+      document.getElementById('ocMonth').innerHTML = fmt(month.totalTokens || 0) + ' <small>tk</small>';
+    }
+
+    // 切换云端额度 tab：volc / opencode / deepseek，互斥显隐三块 body。
     function switchProvider(prov) {
       _provider = prov;
       document.querySelectorAll('#providerTabs .sec-tab').forEach(b => {
         b.classList.toggle('active', b.dataset.prov === prov);
       });
       document.getElementById('planBody').style.display = (prov === 'volc') ? '' : 'none';
+      document.getElementById('opencodeBody').style.display = (prov === 'opencode') ? '' : 'none';
       document.getElementById('deepseekBody').style.display = (prov === 'deepseek') ? '' : 'none';
-      // planBadge 是火山专属概念（套餐档位），DeepSeek 下隐藏。
+      // planBadge 是火山专属概念（套餐档位），其他 tab 下隐藏。
       document.getElementById('planBadge').style.display = (prov === 'volc') ? '' : 'none';
     }
 

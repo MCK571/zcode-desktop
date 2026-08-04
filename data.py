@@ -162,34 +162,50 @@ def _provider_plan_ids() -> set[str]:
     return out
 
 
-def _deepseek_provider_ids() -> set[str]:
-    """返回 config.json 里所有 DeepSeek provider 的 provider_id。
+def _provider_ids_by_baseurl(keyword: str) -> set[str]:
+    """返回 baseURL 含 keyword 的 provider_id 集合。
 
-    判定：provider_id 或 name 含 "deepseek"。DeepSeek 官方 baseURL 是
-    api.deepseek.com，自带 key（非火山 plan），用户可配多个（不同 key）。
+    按 baseURL 而非 provider name 区分厂商，避免用户改 provider 名称（如
+    把 deepseek 条目改名 opencode）后识别错乱。keyword 例如：
+    "api.deepseek.com"（官方 DeepSeek）/ "opencode.ai"（opencode）。
     """
     cfg = _load_config()
     out: set[str] = set()
     for pid, info in cfg.get("provider", {}).items():
-        name = (info.get("name", "") or "").lower()
-        if "deepseek" in pid.lower() or "deepseek" in name:
+        url = (info.get("options", {}) or {}).get("baseURL", "") or ""
+        if keyword in url:
             out.add(pid)
     return out
 
 
-def _deepseek_api_key() -> str:
-    """从 config.json 读第一个 DeepSeek provider 的 apiKey（无则空串）。
+def _provider_api_key(keyword: str) -> str:
+    """返回第一个 baseURL 含 keyword 的 provider 的 apiKey（无则空串）。
 
-    余额查询只需任一有效 key，取配置里第一个 deepseek provider 的 key 即可。
+    余额查询只需任一有效 key，取匹配的第一个即可。
     """
     cfg = _load_config()
     for pid, info in cfg.get("provider", {}).items():
-        name = (info.get("name", "") or "").lower()
-        if "deepseek" in pid.lower() or "deepseek" in name:
+        url = (info.get("options", {}) or {}).get("baseURL", "") or ""
+        if keyword in url:
             key = (info.get("options", {}) or {}).get("apiKey", "") or ""
             if key:
                 return key
     return ""
+
+
+def _deepseek_provider_ids() -> set[str]:
+    """官方 DeepSeek provider 集合（baseURL 含 api.deepseek.com）。"""
+    return _provider_ids_by_baseurl("api.deepseek.com")
+
+
+def _deepseek_api_key() -> str:
+    """官方 DeepSeek 的 apiKey（余额查询用，只认官方地址）。"""
+    return _provider_api_key("api.deepseek.com")
+
+
+def _opencode_provider_ids() -> set[str]:
+    """opencode provider 集合（baseURL 含 opencode.ai）。"""
+    return _provider_ids_by_baseurl("opencode.ai")
 
 
 def _read_tasks() -> list[dict]:
@@ -451,14 +467,13 @@ def _empty_usage() -> dict:
     }
 
 
-def _read_deepseek_usage() -> dict:
-    """聚合本地 model_usage 表里 DeepSeek provider 的 token 用量。
+def _read_provider_usage(pids: set[str]) -> dict:
+    """聚合本地 model_usage 表里指定 provider 集合的 token 用量。
 
     与 _read_usage() 同源（都读 model_usage 表），但按 provider_id 过滤到
-    DeepSeek provider，聚合今日/近7日/近30日三窗口。无 DeepSeek provider
-    或无记录时返回零值结构。前端 DeepSeek tab 据此渲染 token 计数。
+    传入的 provider 集合，聚合今日/近7日/近30日三窗口。无匹配 provider 或
+    无记录时返回零值结构。前端 opencode/DeepSeek tab 据此渲染 token 计数。
     """
-    pids = _deepseek_provider_ids()
     zero = {"totalTokens": 0, "inputTokens": 0, "outputTokens": 0, "requests": 0}
     if not pids or not MODEL_USAGE_DB.exists():
         return {"enabled": bool(pids), "today": dict(zero), "week": dict(zero), "month": dict(zero)}
@@ -520,7 +535,17 @@ def _read_deepseek_usage() -> dict:
     }
 
 
-# ---- DeepSeek 余额查询（后台线程 + 缓存，与火山同模式） ----
+def _read_deepseek_usage() -> dict:
+    """官方 DeepSeek 的 token 用量（按 baseURL 识别）。"""
+    return _read_provider_usage(_deepseek_provider_ids())
+
+
+def _read_opencode_usage() -> dict:
+    """opencode 的 token 用量（按 baseURL 识别）。"""
+    return _read_provider_usage(_opencode_provider_ids())
+
+
+# ---- 火山方舟 OpenAPI 调用（SigV4 签名） ----
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -1271,6 +1296,7 @@ class Api:
             "usage": _read_usage(),
             "planUsage": _read_plan_usage(),
             "deepseekUsage": _read_deepseek_usage(),
+            "opencodeUsage": _read_opencode_usage(),
             "deepseekBalance": _read_deepseek_balance(),
             "live": _read_live_activity(),
             "now": datetime.datetime.now().strftime("%H:%M:%S"),
