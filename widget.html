@@ -59,6 +59,7 @@
     }
 
     .widget {
+      position: relative;  /* 作为 8 方向 resize 手柄的定位上下文 */
       width: 100%;
       height: 100%;
       border-radius: 12px;
@@ -240,6 +241,101 @@
     }
 
     .widget.collapsed .section {
+      display: none;
+    }
+
+    /* ---- 8 方向自定义 resize 手柄 ---- */
+    /* 窗口是 frameless + resizable=False，系统边框不可用，改由前端自实现拖拽改尺寸。
+       视觉上极低调：默认完全不可见，鼠标悬停组件时 8 个手柄隐约浮现（0.30），
+       手柄自身 hover 时亮 accent 紫高亮，不干扰内容阅读。折叠态（48x48 图标）
+       尺寸固定，手柄整体隐藏。 */
+    .resize-handle {
+      position: absolute;
+      z-index: 60;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity .12s ease;
+    }
+
+    .widget:hover .resize-handle {
+      opacity: 0.30;
+    }
+
+    .resize-handle:hover {
+      opacity: 1;
+      background: rgba(124, 92, 255, 0.32);
+    }
+
+    /* 四边：细长条居中；四角：小方块。cursor 按拖拽方向给出系统 resize 光标 */
+    .rh-n {
+      top: 2px;
+      left: 50%;
+      width: 46px;
+      height: 6px;
+      transform: translateX(-50%);
+      cursor: ns-resize;
+    }
+
+    .rh-s {
+      bottom: 2px;
+      left: 50%;
+      width: 46px;
+      height: 6px;
+      transform: translateX(-50%);
+      cursor: ns-resize;
+    }
+
+    .rh-e {
+      right: 2px;
+      top: 50%;
+      width: 6px;
+      height: 46px;
+      transform: translateY(-50%);
+      cursor: ew-resize;
+    }
+
+    .rh-w {
+      left: 2px;
+      top: 50%;
+      width: 6px;
+      height: 46px;
+      transform: translateY(-50%);
+      cursor: ew-resize;
+    }
+
+    .rh-ne {
+      top: 2px;
+      right: 2px;
+      width: 14px;
+      height: 14px;
+      cursor: nesw-resize;
+    }
+
+    .rh-nw {
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+    }
+
+    .rh-se {
+      bottom: 2px;
+      right: 2px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+    }
+
+    .rh-sw {
+      bottom: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      cursor: nesw-resize;
+    }
+
+    .widget.collapsed .resize-handle {
       display: none;
     }
 
@@ -924,6 +1020,16 @@
       <button class="close-btn" id="closeBtn" title="关闭">×</button>
     </div>
 
+    <!-- 8 方向 resize 手柄（frameless + resizable=False，前端自实现拖拽改尺寸，见 JS 逻辑） -->
+    <div class="resize-handle rh-n" data-dir="n"></div>
+    <div class="resize-handle rh-s" data-dir="s"></div>
+    <div class="resize-handle rh-e" data-dir="e"></div>
+    <div class="resize-handle rh-w" data-dir="w"></div>
+    <div class="resize-handle rh-ne" data-dir="ne"></div>
+    <div class="resize-handle rh-nw" data-dir="nw"></div>
+    <div class="resize-handle rh-se" data-dir="se"></div>
+    <div class="resize-handle rh-sw" data-dir="sw"></div>
+
     <!-- model usage -->
     <div class="section">
       <div class="sec-head">
@@ -1452,6 +1558,52 @@
     // a click from a drag via a movement threshold), so a click on the collapsed
     // Z icon expands while a drag moves the window.
     window.__toggleExpand = setCollapsed;
+
+    /* ---- 8 方向自定义 resize（窗口 resizable=False，仿 header 拖拽模式） ---- */
+    // 拖拽手柄时经 getPos()/moveWindow()/resizeWindow() 桥改原生窗口尺寸。
+    // 与 header 拖拽的差异：
+    // - 基准来自 getPos() 异步返回，返回前（ready=false）忽略 mousemove，防起点为 0 的跳变；
+    // - 每帧从基准重算 w/h/x/y（不做增量累积），左/上边拖拽时 x/y 同步位移，
+    //   保证右/下角不动；最小尺寸钳制后 x/y 按实际 w/h 反推，窗口不会"跑偏"；
+    // - 桥调用加 _resizeLock 防堆积（mousemove 高频触发，桥每次调用都新建线程）。
+    const _MIN_W = 240, _MIN_H = 300;  // 拖拽最小尺寸（折叠态 48x48 不受影响，手柄已隐藏）
+    let _resizing = null;              // {dir, sx, sy, ready, wx, wy, ww, wh}
+    let _resizeLock = false;
+
+    document.querySelectorAll('.resize-handle').forEach(h => {
+      h.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || !window.pywebview || !window.pywebview.api) return;
+        e.preventDefault();
+        e.stopPropagation();  // 与 header 拖拽互斥（手柄虽在 header 视觉范围内但不是其子元素）
+        const apiObj = window.pywebview.api;
+        _resizing = { dir: h.dataset.dir, sx: e.screenX, sy: e.screenY, ready: false, wx: 0, wy: 0, ww: 0, wh: 0 };
+        apiObj.getPos().then(p => {
+          if (_resizing) { _resizing.ready = true; _resizing.wx = p.x; _resizing.wy = p.y; _resizing.ww = p.w; _resizing.wh = p.h; }
+        });
+      });
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      const r = _resizing;
+      if (!r || !r.ready || _resizeLock) return;
+      const dx = e.screenX - r.sx, dy = e.screenY - r.sy;
+      let w = r.ww, h = r.wh, x = r.wx, y = r.wy;
+      if (r.dir.includes('e')) { w = Math.max(_MIN_W, r.ww + dx); }
+      if (r.dir.includes('w')) { w = Math.max(_MIN_W, r.ww - dx); x = r.wx + (r.ww - w); }
+      if (r.dir.includes('s')) { h = Math.max(_MIN_H, r.wh + dy); }
+      if (r.dir.includes('n')) { h = Math.max(_MIN_H, r.wh - dy); y = r.wy + (r.wh - h); }
+      _resizeLock = true;
+      const apiObj = window.pywebview.api;
+      Promise.resolve().then(() => {
+        const calls = [];
+        if (x !== r.wx || y !== r.wy) calls.push(apiObj.moveWindow(x, y));
+        calls.push(apiObj.resizeWindow(w, h));
+        return Promise.all(calls);
+      }).catch(() => { /* 拖拽中失败忽略，下一帧继续 */ })
+        .then(() => { _resizeLock = false; });
+    });
+
+    document.addEventListener('mouseup', () => { _resizing = null; });
 
     // clock tick independent of data refresh
     setInterval(() => { document.getElementById('clock').textContent = new Date().toTimeString().slice(0, 8); }, 1000);
