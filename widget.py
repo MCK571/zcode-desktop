@@ -339,6 +339,10 @@ def main() -> None:
     # 余额查询走 GET /user/balance，缓存 60s，status() 路径零网络。
     from data import start_ds_refresher
     start_ds_refresher()
+    # 启动 opencode Go 余量后台刷新线程（dashboard 抓取，daemon，幂等）。
+    # 与火山/DeepSeek 同模式：缓存 60s，status() 路径零网络。
+    from data import start_ocgo_refresher
+    start_ocgo_refresher()
 
     html_path = os.path.join(HERE, "widget.html")
 

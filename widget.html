@@ -970,9 +970,9 @@
         <div class="plan-list" id="planList"></div>
         <div class="plan-note" id="planNote"></div>
       </div>
-      <!-- opencode 视图（无余额 API，仅本地 token 用量） -->
+      <!-- opencode 视图（Go 余量进度条 + 本地 token 用量） -->
       <div id="opencodeBody" style="display:none">
-        <div class="ds-note" style="margin-bottom:8px">opencode 无余额查询 API，仅展示本地 token 用量</div>
+        <div id="ocGoList" class="plan-list" style="margin-bottom:8px"></div>
         <div class="usage-grid">
           <div class="stat in">
             <div class="k">今日 Input</div>
@@ -991,6 +991,7 @@
             <div class="v" id="ocMonth">0</div>
           </div>
         </div>
+        <div class="ds-note" id="ocNote"></div>
       </div>
       <!-- DeepSeek 视图 -->
       <div id="deepseekBody" style="display:none">
@@ -1105,6 +1106,7 @@
         renderPlanUsage(s.planUsage);
         renderProviderUsage(s.deepseekUsage, s.deepseekBalance, {});
         renderOpencode(s.opencodeUsage);
+        renderOpencodeGo(s.opencodeGo);
         renderTasks(s.recentTasks);
         renderClock(s.now);
         firstRenderDone = true;
@@ -1268,6 +1270,34 @@
       document.getElementById('ocTodayOut').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
       document.getElementById('ocWeek').innerHTML = fmt(week.totalTokens || 0) + ' <small>tk</small>';
       document.getElementById('ocMonth').innerHTML = fmt(month.totalTokens || 0) + ' <small>tk</small>';
+    }
+
+    // 渲染 opencode Go 套餐余量进度条（dashboard 抓取，复用 .plan-bucket 样式）。
+    function renderOpencodeGo(go) {
+      const list = document.getElementById('ocGoList');
+      const note = document.getElementById('ocNote');
+      if (!go || !go.enabled) {
+        list.style.display = 'none';
+        note.textContent = '未配置 opencode Go 凭证（.volc.env 设 OPENCODE_GO_WORKSPACE_ID / OPENCODE_GO_AUTH_COOKIE）';
+        return;
+      }
+      list.style.display = '';
+      const buckets = go.buckets || [];
+      list.innerHTML = buckets.map(b => {
+        const pct = Math.min(100, b.usedPct || 0);
+        const cls = pct >= 90 ? 'crit' : (pct >= 70 ? 'warn' : 'ok');
+        return `<div class="plan-bucket">
+      <div class="plan-bucket-head">
+        <span class="pb-left"><span class="pb-name">${b.label}</span></span>
+        <span class="pb-val"><b>${(b.usedPct || 0).toFixed(1)}%</b><small> 已用</small></span>
+      </div>
+      <div class="plan-bar"><div class="plan-bar-fill ${cls}" style="width:${pct}%"></div></div>
+      <div class="plan-bucket-foot"><span>剩余 ${(b.remainingPct || 0).toFixed(1)}%</span><span>${fmtResetCountdown(b.key, b.resetMs)}</span></div>
+    </div>`;
+      }).join('');
+      note.textContent = go.error
+        ? ('⚠ ' + go.error)
+        : ('更新于 ' + (go.updatedAt || '').slice(11, 19) + ' · 来源: opencode dashboard');
     }
 
     // 切换云端额度 tab：volc / opencode / deepseek，互斥显隐三块 body。

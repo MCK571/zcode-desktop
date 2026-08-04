@@ -137,6 +137,16 @@ del _VOLC_PLAN_START_RAW
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEEPSEEK_CACHE_TTL = 60.0
 
+# ---- opencode Go 套餐余量（dashboard 抓取） ----
+# opencode Go 无官方查询 API，余量只渲染在登录后的 dashboard 页面：
+#   GET https://opencode.ai/workspace/{workspaceId}/go
+# 认证用 opencode.ai 网站的登录会话 cookie（浏览器 DevTools 复制，非 API key）。
+# 凭证在 .volc.env 配置（_load_volc_env 已自动加载任意 KEY=VALUE）。
+OPENCODE_GO_WORKSPACE_ID = (os.environ.get("OPENCODE_GO_WORKSPACE_ID", "") or "").strip()
+OPENCODE_GO_AUTH_COOKIE = (os.environ.get("OPENCODE_GO_AUTH_COOKIE", "") or "").strip()
+OPENCODE_GO_DASHBOARD_URL = "https://opencode.ai/workspace/{}/go"
+OPENCODE_GO_CACHE_TTL = 60.0
+
 
 def _load_config() -> dict:
     try:
@@ -993,6 +1003,218 @@ def _read_deepseek_balance() -> dict:
     }
 
 
+# ---- opencode Go 余量抓取（后台线程 + 缓存，与火山/DeepSeek 同模式） ----
+# _OCGO_CACHE: [timestamp, payload]，由后台线程写入，status() 只读。
+_OCGO_CACHE: list = [0.0, None]
+_OCGO_REFRESHER_STARTED = False
+
+# opencode Go dashboard 页面里三窗口的 SSR 字段名 -> 窗口 key。
+_OCGO_WINDOW_FIELDS = ("rollingUsage", "weeklyUsage", "monthlyUsage")
+_OCGO_WINDOW_LABELS = {"rolling": "5小时", "weekly": "每周", "monthly": "每月"}
+
+
+def _ocgo_parse_window(html: str, field: str) -> dict | None:
+    """从 dashboard HTML 解析一个用量窗口（usedPct + resetMs）。
+
+    移植 opencode-quota 的 opencode-go.ts：先试 SolidJS SSR 水合数据
+    （`$R[N]={...usagePercent:X...resetInSec:Y...}`，字段顺序不固定，两种
+    顺序都试），抓不到再试 data-slot 属性格式。都抓不到返回 None。
+    """
+    import re
+
+    # SolidJS SSR：usagePercent 与 resetInSec 两种顺序。
+    for pct_first in (True, False):
+        body = (
+            f"{field}:\\$R\\[\\d+\\]=\\{{[^}}]*"
+            + ("usagePercent:([\\d.]+)[^}]*resetInSec:([\\d.]+)" if pct_first
+               else "resetInSec:([\\d.]+)[^}]*usagePercent:([\\d.]+)")
+            + "[^}]*\\}"
+        )
+        m = re.search(body, html)
+        if m:
+            pct = float(m.group(1)) if pct_first else float(m.group(2))
+            reset_sec = float(m.group(2)) if pct_first else float(m.group(1))
+            if pct == pct and reset_sec == reset_sec:  # NaN 检查
+                return _ocgo_make_window(pct, reset_sec)
+
+    # data-slot 格式：按 usage-item 分割，label 里含窗口名。
+    label_map = {"rolling": "rolling", "weekly": "weekly", "monthly": "monthly"}
+    for item in html.split('data-slot="usage-item"')[1:]:
+        lm = re.search(r'data-slot="usage-label">([^<]+)<', item)
+        if not lm:
+            continue
+        label = lm.group(1).strip().lower()
+        key = next((k for k, v in label_map.items() if v in label), None)
+        if key != field.replace("Usage", ""):
+            continue
+        um = re.search(r'data-slot="usage-value">[^0-9]*([\d.]+)', item)
+        if not um:
+            continue
+        rm = re.search(r'data-slot="(reset-time|reset-now)">([\s\S]*?)</span>', item)
+        if not rm:
+            continue
+        if rm.group(1) == "reset-now":
+            reset_sec = 0.0
+        else:
+            reset_sec = _ocgo_parse_human_time(rm.group(2))
+            if reset_sec is None:
+                continue
+        return _ocgo_make_window(float(um.group(1)), reset_sec)
+    return None
+
+
+def _ocgo_make_window(used_pct: float, reset_sec: float) -> dict:
+    """把 (已用百分比, 剩余秒) 归一成 window dict。"""
+    used_pct = max(0.0, min(100.0, used_pct))
+    reset_sec = max(0.0, reset_sec)
+    return {
+        "usedPct": round(used_pct, 1),
+        "remainingPct": round(100.0 - used_pct, 1),
+        "resetMs": int((datetime.datetime.now().timestamp() + reset_sec) * 1000),
+    }
+
+
+def _ocgo_parse_human_time(text: str) -> float | None:
+    """把 "6 days 2 hours 30 minutes" 之类的人类可读时长转成秒。"""
+    import re
+
+    normalized = text.lower().replace("\u2014", " ").strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    if normalized in ("reset-now", "reset now", "now", "resets now"):
+        return 0.0
+    total = 0.0
+    found = False
+    for unit, mult in (("days?", 86400), ("hours?", 3600), ("minutes?", 60), ("seconds?", 1)):
+        m = re.search(rf"([\d.]+)\s*{unit}", normalized)
+        if m:
+            total += float(m.group(1)) * mult
+            found = True
+    return total if found else None
+
+
+def _opencode_go_fetch() -> dict | None:
+    """抓取 opencode Go dashboard 页面并解析三窗口余量。
+
+    无凭证返回 None（enabled=False 分支由 _ocgo_refresh_once 处理）。
+    网络/解析异常抛出，由调用方统一处理。返回结构：
+    {rolling: {...}?, weekly: {...}?, monthly: {...}?}（缺失窗口不含）。
+    """
+    if not OPENCODE_GO_WORKSPACE_ID or not OPENCODE_GO_AUTH_COOKIE:
+        return None
+    url = OPENCODE_GO_DASHBOARD_URL.format(OPENCODE_GO_WORKSPACE_ID)
+    resp = requests.get(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/148.0",
+            "Accept": "text/html",
+            "Cookie": f"auth={OPENCODE_GO_AUTH_COOKIE}",
+        },
+        timeout=5,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}")
+    html = resp.text
+    out: dict = {}
+    for field in _OCGO_WINDOW_FIELDS:
+        win = _ocgo_parse_window(html, field)
+        if win is not None:
+            out[field.replace("Usage", "")] = win
+    if not out:
+        raise RuntimeError("no usage window found")
+    return out
+
+
+def _ocgo_refresh_once() -> None:
+    """执行一次 opencode Go 余量抓取并更新 _OCGO_CACHE。仅由后台线程调用。
+
+    失败时复用旧缓存（与火山/DeepSeek 同策略），旧缓存也无则写 error 结构。
+    """
+    if not OPENCODE_GO_WORKSPACE_ID or not OPENCODE_GO_AUTH_COOKIE:
+        empty = {
+            "enabled": False,
+            "workspaceId": "",
+            "buckets": [],
+            "error": "",
+            "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        _OCGO_CACHE[0] = datetime.datetime.now().timestamp()
+        _OCGO_CACHE[1] = empty
+        return
+
+    try:
+        parsed = _opencode_go_fetch()
+    except Exception:
+        cached_old = _OCGO_CACHE[1]
+        if cached_old is not None and cached_old.get("enabled") and cached_old.get("buckets"):
+            return  # 复用旧缓存
+        empty = {
+            "enabled": True,
+            "workspaceId": OPENCODE_GO_WORKSPACE_ID,
+            "buckets": [],
+            "error": "抓取失败（cookie 可能过期）",
+            "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        _OCGO_CACHE[0] = datetime.datetime.now().timestamp()
+        _OCGO_CACHE[1] = empty
+        return
+
+    buckets = [
+        {
+            "key": key,
+            "label": _OCGO_WINDOW_LABELS[key],
+            "usedPct": win["usedPct"],
+            "remainingPct": win["remainingPct"],
+            "resetMs": win["resetMs"],
+        }
+        for key, win in parsed.items()
+    ]
+    result = {
+        "enabled": True,
+        "workspaceId": OPENCODE_GO_WORKSPACE_ID,
+        "buckets": buckets,
+        "error": "",
+        "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    _OCGO_CACHE[0] = datetime.datetime.now().timestamp()
+    _OCGO_CACHE[1] = result
+
+
+def _ocgo_refresher_loop() -> None:
+    """opencode Go 余量后台守护线程主循环，与火山/DeepSeek 同构。"""
+    import time
+    while True:
+        try:
+            _ocgo_refresh_once()
+        except Exception:
+            pass
+        time.sleep(OPENCODE_GO_CACHE_TTL)
+
+
+def start_ocgo_refresher() -> None:
+    """启动 opencode Go 余量后台刷新线程（幂等，daemon）。"""
+    global _OCGO_REFRESHER_STARTED
+    if _OCGO_REFRESHER_STARTED:
+        return
+    _OCGO_REFRESHER_STARTED = True
+    import threading
+    t = threading.Thread(target=_ocgo_refresher_loop, name="ocgo-refresher", daemon=True)
+    t.start()
+
+
+def _read_opencode_go() -> dict:
+    """纯读 opencode Go 余量缓存，永不阻塞、永不走网络。"""
+    cached = _OCGO_CACHE[1]
+    if cached is not None:
+        return cached
+    return {
+        "enabled": bool(OPENCODE_GO_WORKSPACE_ID and OPENCODE_GO_AUTH_COOKIE),
+        "workspaceId": OPENCODE_GO_WORKSPACE_ID,
+        "buckets": [],
+        "error": "",
+        "updatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def _read_plan_usage() -> dict:
     """读取火山方舟套餐的云端用量（纯读缓存，永不阻塞、永不走网络）。
 
@@ -1297,6 +1519,7 @@ class Api:
             "planUsage": _read_plan_usage(),
             "deepseekUsage": _read_deepseek_usage(),
             "opencodeUsage": _read_opencode_usage(),
+            "opencodeGo": _read_opencode_go(),
             "deepseekBalance": _read_deepseek_balance(),
             "live": _read_live_activity(),
             "now": datetime.datetime.now().strftime("%H:%M:%S"),
