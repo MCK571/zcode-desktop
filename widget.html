@@ -24,7 +24,7 @@
       --bg: #0b0c11;
       --bg2: #14161d;
       --card: rgba(30, 34, 42, 0.34);
-      --card2: rgba(38, 42, 51, 0.44);
+      --card2: rgba(38, 42, 51, 0.9);
       --border: rgba(255, 255, 255, 0.09);
       --border2: rgba(255, 255, 255, 0.16);
 
@@ -755,7 +755,9 @@
 
     .ds-balance {
       display: flex;
-      align-items: baseline;
+      /* SVG 无文本基线，baseline 会让 label 基线坠到 svg 底边、余额数字视觉上移；
+         改 center 让 label 与数字垂直居中（与 .stat .v 同处理） */
+      align-items: center;
       gap: 7px;
       margin-bottom: 11px;
     }
