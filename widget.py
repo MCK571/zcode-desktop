@@ -323,6 +323,46 @@ def _enable_acrylic_on_form(window) -> None:
         pass
 
 
+def _apply_window_opacity(hwnd: int, value: float) -> None:
+    """用 WS_EX_LAYERED + SetLayeredWindowAttributes 设窗口整体透明度。
+
+    value 0.3~1.0（前端滑块 30%-100%）。value>=1 时移除 layered 样式，让系统
+    Acrylic 恢复（DWM backdrop 与 layered 窗口不兼容：layered 期间 Acrylic
+    失效，由 CSS 玻璃兜底；100% 时移除 layered 即恢复系统毛玻璃）。
+    GetWindowLongW/SetWindowLongW 必须声明 argtypes，否则 64 位下句柄被截断
+    为 32 位导致调用失败（与 AppUserModelID 同坑）。
+    """
+    if not hwnd or value <= 0:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        user32.GetWindowLongW.restype = ctypes.c_long
+        user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+        user32.SetWindowLongW.restype = ctypes.c_long
+        user32.SetLayeredWindowAttributes.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint, ctypes.c_ubyte, ctypes.c_uint,
+        ]
+        user32.SetLayeredWindowAttributes.restype = ctypes.c_int
+
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        LWA_ALPHA = 0x2
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        if value >= 1.0:
+            # 回 100%：移除 layered 样式，恢复系统 Acrylic
+            if style & WS_EX_LAYERED:
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style & ~WS_EX_LAYERED)
+        else:
+            if not (style & WS_EX_LAYERED):
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED)
+            user32.SetLayeredWindowAttributes(
+                hwnd, 0, int(max(0.0, min(1.0, value)) * 255), LWA_ALPHA
+            )
+    except Exception:
+        pass
+
+
 _set_windows_taskbar_icon()
 
 
@@ -378,7 +418,30 @@ def main() -> None:
 
     # Expose bridge functions individually (avoids the Rectangle marshalling
     # bug). These become callable as window.pywebview.api.<name>() in JS.
-    window.expose(api.status, api.quit, api.getPos, api.moveWindow, api.resizeWindow, api.openTask)
+    def setOpacity(value):
+        """窗口整体透明度（0.3-1.0，前端滑块）。native 访问受 .NET 线程亲和
+        约束，与 _enable_acrylic_on_form 同模式：Invoke 到 UI 线程执行。"""
+        if sys.platform != "win32":
+            return
+        native = getattr(window, "native", None)
+        if native is None:
+            return
+        try:
+            import clr  # noqa: F401
+            from System import Action
+
+            def _do():
+                hwnd = int(native.Handle.ToInt32())
+                _apply_window_opacity(hwnd, float(value))
+
+            native.Invoke(Action(_do))
+        except Exception:
+            pass
+
+    window.expose(
+        api.status, api.quit, api.getPos, api.moveWindow, api.resizeWindow,
+        api.openTask, setOpacity,
+    )
 
     def _on_loaded():
         # webview.start(func=...) runs this on a background thread immediately,
@@ -405,6 +468,8 @@ def main() -> None:
               hdr.addEventListener('mousedown', function(e){
                 if(e.target.classList.contains('close-btn')) return;
                 if(e.target.closest('.collapse-btn')) return;
+                if(e.target.closest('.theme-btn')) return;
+                if(e.target.closest('.opacity-btn')) return;
                 dragging=true; moved=false;
                 ox=e.screenX; oy=e.screenY;
                 window.pywebview.api.getPos().then(function(p){ wx=p.x; wy=p.y; });

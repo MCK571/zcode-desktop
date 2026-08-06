@@ -1,37 +1,120 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ZCode 用量组件</title>
   <style>
+    /* ============================================================
+       液态玻璃样式（移植自 zcode-usage-monitor.html 原型，规范见
+       zcode-ui-refactor-spec.md）。功能/布局/排版与重构前一致：
+       深色为默认主题，浅色由 data-theme="light" 覆盖。
+       ============================================================ */
     :root {
-      /* ---- 玻璃变量体系(移植自 token-monitor styles.css,匹配系统 Acrylic ARGB 0x3a232323) ---- */
-      --glass-rgb: 48, 52, 56;
-      --glass-alpha: 0.68;
+      /* ---- 玻璃材质（深色默认；alpha 0.34 与系统 Acrylic 叠加） ---- */
+      --glass-rgb: 31, 35, 41;
+      --glass-alpha: 0.34;
       --glass: rgba(var(--glass-rgb), var(--glass-alpha));
-      --glass-filter: blur(32px) saturate(115%);
-      --glass-strong: rgba(31, 35, 41, 0.56);
+      --glass-filter: blur(26px) saturate(170%);
+      --glass-strong: rgba(40, 44, 52, 0.50);
       --glass-soft: rgba(255, 255, 255, 0.05);
-      --line: rgba(232, 238, 244, 0.138);
-      --line-strong: rgba(232, 238, 244, 0.238);
-      --bg: #0f1014;
-      --bg2: #16181f;
-      --card: #1a1d27;
-      --card2: #21242f;
-      --border: rgba(255, 255, 255, 0.08);
-      --border2: rgba(255, 255, 255, 0.14);
+      --line: rgba(232, 238, 244, 0.13);
+      --line-strong: rgba(232, 238, 244, 0.22);
+      --bg: #0b0c11;
+      --bg2: #14161d;
+      --card: rgba(30, 34, 42, 0.34);
+      --card2: rgba(38, 42, 51, 0.44);
+      --border: rgba(255, 255, 255, 0.09);
+      --border2: rgba(255, 255, 255, 0.16);
+
+      /* ---- 文字 ---- */
       --text: #e8eaf0;
-      --text2: #9aa0ad;
-      --text3: #5f6573;
+      --text2: #a9b1bf;
+      --text3: #6d7481;
+
+      /* ---- 强调与语义 ---- */
       --accent: #7c5cff;
+      --accent-soft: rgba(124, 92, 255, 0.20);
+      --accent-rgb: 124, 92, 255;
       --accent2: #4fd1c5;
+      --accent2-soft: rgba(79, 209, 197, 0.12);
+      --accent2-rgb: 79, 209, 197;
       --green: #34d399;
+      --green-rgb: 52, 211, 153;
       --amber: #fbbf24;
+      --amber-rgb: 251, 191, 36;
       --red: #f87171;
+      --red-rgb: 248, 113, 113;
       --blue: #60a5fa;
+      --blue-rgb: 96, 165, 250;
+
+      /* ---- SVG 渐变端点（深色必须高对比双色，否则发虚） ---- */
+      --grad-a: #7c5cff;
+      --grad-b: #4fd1c5;
+      --grad-in-a: #3b82f6;
+      --grad-in-b: #a5c8ff;
+      --grad-out-a: #23b5a6;
+      --grad-out-b: #7ff0e2;
+      --grad-label-a: #8fa0bd;
+      --grad-label-b: #4fd1c5;
+      --grad-low-a: #16a34a;
+      --grad-low-b: #34d399;
+      --grad-warn-a: #d97706;
+      --grad-warn-b: #fbbf24;
+      --grad-crit-a: #dc2626;
+      --grad-crit-b: #f87171;
+
       --shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.04) inset;
+    }
+
+    :root[data-theme="light"] {
+      --glass-rgb: 255, 255, 255;
+      --glass-alpha: 0.24;
+      --glass: rgba(var(--glass-rgb), var(--glass-alpha));
+      --glass-strong: rgba(255, 255, 255, 0.48);
+      --glass-soft: rgba(15, 23, 42, 0.04);
+      --line: rgba(15, 23, 42, 0.07);
+      --line-strong: rgba(15, 23, 42, 0.13);
+      --bg: #f2f5f9;
+      --bg2: #edf1f7;
+      --card: rgba(255, 255, 255, 0.30);
+      --card2: rgba(255, 255, 255, 0.40);
+      --border: rgba(15, 23, 42, 0.08);
+      --border2: rgba(15, 23, 42, 0.15);
+      --text: #101722;
+      --text2: #526070;
+      --text3: #8a97a8;
+      --accent: #7c5cff;
+      --accent-soft: rgba(124, 92, 255, 0.12);
+      --accent-rgb: 124, 92, 255;
+      --accent2: #0d9488;
+      --accent2-soft: rgba(13, 148, 136, 0.10);
+      --accent2-rgb: 13, 148, 136;
+      --green: #15803d;
+      --green-rgb: 21, 128, 61;
+      --amber: #b45309;
+      --amber-rgb: 180, 83, 9;
+      --red: #dc2626;
+      --red-rgb: 220, 38, 38;
+      --blue: #1d63d6;
+      --blue-rgb: 29, 99, 214;
+      /* 浅色：起点用文字深色、终点用语义色（规范 §1.4） */
+      --grad-a: var(--text);
+      --grad-b: var(--accent2);
+      --grad-in-a: var(--text);
+      --grad-in-b: var(--blue);
+      --grad-out-a: var(--text);
+      --grad-out-b: var(--accent2);
+      --grad-label-a: var(--text2);
+      --grad-label-b: var(--accent2);
+      --grad-low-a: var(--text);
+      --grad-low-b: var(--green);
+      --grad-warn-a: var(--text);
+      --grad-warn-b: var(--amber);
+      --grad-crit-a: var(--text);
+      --grad-crit-b: var(--red);
+      --shadow: 0 24px 55px -20px rgba(23, 36, 58, 0.28), 0 2px 0 rgba(255, 255, 255, 0.75) inset;
     }
 
     * {
@@ -49,7 +132,7 @@
 
     body {
       font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", -apple-system, system-ui, sans-serif;
-      background: transparent;
+      background: transparent; /* 窗口透明，毛玻璃由系统 Acrylic 提供 */
       color: var(--text);
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
@@ -58,19 +141,42 @@
       font-size: 13px;
     }
 
+    /* ---- 玻璃配方：半透明填充 + 独立背景层 backdrop-filter + 1px 描边 + 内高光 + 投影。
+         backdrop-filter 不能直接放文字主容器（会破坏内部文字渲染，见规范坑 #3），
+         移到 ::before 独立层，内容层 z-index:1。 ---- */
     .widget {
-      position: relative;  /* 作为 8 方向 resize 手柄的定位上下文 */
+      position: relative; /* 8 方向 resize 手柄的定位上下文 */
       width: 100%;
       height: 100%;
-      border-radius: 12px;
+      border-radius: 16px;
       background: var(--glass);
       border: 1px solid var(--line);
       overflow: hidden;
       display: flex;
       flex-direction: column;
       box-shadow: var(--shadow);
+    }
+
+    .widget::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      border-radius: inherit;
       -webkit-backdrop-filter: var(--glass-filter);
       backdrop-filter: var(--glass-filter);
+      pointer-events: none;
+    }
+
+    .widget>.header {
+      position: relative;
+      z-index: 5; /* 高于 section(1)：透明度弹层是 header 子元素，z-index 被锁在
+                     header 的 stacking context 内，header 不提级弹层会被 section 盖住 */
+    }
+
+    .widget>.section {
+      position: relative;
+      z-index: 1;
     }
 
     /* ---- header / drag handle ---- */
@@ -81,7 +187,7 @@
       padding: 13px 14px 11px;
       cursor: grab;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(90deg, rgba(124, 92, 255, 0.10), transparent 55%);
+      background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.10), transparent 55%);
     }
 
     .header:active {
@@ -99,7 +205,7 @@
       font-weight: 800;
       font-size: 14px;
       color: #fff;
-      box-shadow: 0 4px 12px rgba(124, 92, 255, 0.4);
+      box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.35);
       flex-shrink: 0;
       cursor: pointer;
     }
@@ -113,6 +219,9 @@
       font-size: 13px;
       font-weight: 650;
       letter-spacing: 0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .header .sub {
@@ -134,21 +243,21 @@
 
     .dot.live {
       background: var(--green);
-      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+      box-shadow: 0 0 0 0 rgba(var(--green-rgb), 0.55);
       animation: pulse 1.8s infinite;
     }
 
     @keyframes pulse {
       0% {
-        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+        box-shadow: 0 0 0 0 rgba(var(--green-rgb), 0.55);
       }
 
       70% {
-        box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+        box-shadow: 0 0 0 7px rgba(var(--green-rgb), 0);
       }
 
       100% {
-        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+        box-shadow: 0 0 0 0 rgba(var(--green-rgb), 0);
       }
     }
 
@@ -156,22 +265,31 @@
       font-size: 11px;
       color: var(--text2);
       font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
     }
 
-    .close-btn {
+    /* 头部圆形按钮：折叠 / 主题 / 透明度 / 关闭 */
+    .close-btn,
+    .collapse-btn,
+    .theme-btn,
+    .opacity-btn {
       width: 18px;
       height: 18px;
       border-radius: 50%;
       border: none;
       cursor: pointer;
-      background: rgba(255, 255, 255, 0.07);
+      background: rgba(var(--accent-rgb), 0.08);
       color: var(--text2);
-      font-size: 11px;
-      line-height: 1;
       display: flex;
       align-items: center;
       justify-content: center;
       transition: all .15s;
+      flex-shrink: 0;
+    }
+
+    .close-btn {
+      font-size: 11px;
+      line-height: 1;
     }
 
     .close-btn:hover {
@@ -179,41 +297,120 @@
       color: #fff;
     }
 
-    /* collapse button (toggle to icon mode) */
-    .collapse-btn {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      border: none;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.07);
-      color: var(--text2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all .15s;
-    }
-
-    .collapse-btn:hover {
+    .collapse-btn:hover,
+    .theme-btn:hover,
+    .opacity-btn:hover {
       background: var(--accent);
       color: #fff;
     }
 
+    .collapse-btn svg {
+      width: 9px;
+      height: 9px;
+    }
+
+    .theme-btn svg,
+    .opacity-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .theme-btn .icon-moon {
+      display: none;
+    }
+
+    /* 主题切换按钮暂时隐藏（用户要求；逻辑保留，需要时放开即可） */
+    .theme-btn {
+      display: none;
+    }
+
+    /* 透明度按钮暂时隐藏（用户要求；setOpacity 桥与记忆逻辑保留，需要时放开即可） */
+    .opacity-btn {
+      display: none;
+    }
+
+    /* ---- 透明度弹层（挂在 opacity-btn 下，点击展开） ---- */
+    .opacity-btn {
+      position: relative;
+    }
+
+    .opacity-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: -6px;
+      z-index: 80;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      width: 158px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--card2);
+      border: 1px solid var(--border2);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .opacity-pop.open {
+      display: flex;
+    }
+
+    .opacity-pop .op-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 11px;
+      color: var(--text3);
+    }
+
+    .opacity-pop .op-val {
+      font-size: 11px;
+      font-weight: 650;
+      color: var(--text2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .opacity-pop input[type="range"] {
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+      cursor: pointer;
+      background: linear-gradient(90deg, var(--accent2), var(--accent2) var(--op-fill, 100%),
+          rgba(255, 255, 255, 0.12) var(--op-fill, 100%));
+    }
+
+    .opacity-pop input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid var(--accent);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+
     /* ---- collapsed (icon) state ---- */
-    /* 折叠态窗口缩到 48x48。透明窗口下窗口四角是 WebView2 方形客户区,CSS 圆角
-       裁不掉会露黑边。解法:折叠态 .widget 与 .logo 都用方形(border-radius:0),
-       让渐变图标精确填满 48x48 方形窗口,四角是图标内容而非黑边。 */
+    /* 折叠态窗口缩到 48x48。透明窗口下窗口四角是 WebView2 方形客户区，CSS 圆角
+       裁不掉会露黑边。解法:折叠态 .widget 与 .logo 都用方形(border-radius:0)，
+       让渐变图标精确填满 48x48 方形窗口，四角是图标内容而非黑边。
+       （Win11 系统级 DWM 圆角/SetWindowRgn 兜底裁切，双保险。） */
     .widget.collapsed {
       border-radius: 0;
       border: none;
       box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
     }
+
     .widget.collapsed .titles,
     .widget.collapsed .clock,
     .widget.collapsed .collapse-btn,
-    .widget.collapsed .close-btn {
+    .widget.collapsed .theme-btn,
+    .widget.collapsed .opacity-btn,
+    .widget.collapsed .close-btn,
+    .widget.collapsed .section,
+    .widget.collapsed .resize-handle {
       display: none;
     }
 
@@ -240,15 +437,7 @@
       transform: scale(1.06);
     }
 
-    .widget.collapsed .section {
-      display: none;
-    }
-
-    /* ---- 8 方向自定义 resize 手柄 ---- */
-    /* 窗口是 frameless + resizable=False，系统边框不可用，改由前端自实现拖拽改尺寸。
-       视觉上极低调：默认完全不可见，鼠标悬停组件时 8 个手柄隐约浮现（0.30），
-       手柄自身 hover 时亮 accent 紫高亮，不干扰内容阅读。折叠态（48x48 图标）
-       尺寸固定，手柄整体隐藏。 */
+    /* ---- 8 方向自定义 resize 手柄（frameless + resizable=False，前端自实现） ---- */
     .resize-handle {
       position: absolute;
       z-index: 60;
@@ -263,10 +452,9 @@
 
     .resize-handle:hover {
       opacity: 1;
-      background: rgba(124, 92, 255, 0.32);
+      background: rgba(var(--accent-rgb), 0.32);
     }
 
-    /* 四边：细长条居中；四角：小方块。cursor 按拖拽方向给出系统 resize 光标 */
     .rh-n {
       top: 2px;
       left: 50%;
@@ -339,7 +527,7 @@
       display: none;
     }
 
-    /* ---- usage section ---- */
+    /* ---- section ---- */
     .section {
       padding: 13px 14px;
       border-bottom: 1px solid var(--border);
@@ -355,6 +543,7 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 11px;
+      gap: 8px;
     }
 
     .sec-title {
@@ -363,24 +552,26 @@
       color: var(--text2);
       text-transform: uppercase;
       letter-spacing: 0.8px;
+      white-space: nowrap;
     }
 
     .sec-badge {
       font-size: 11px;
       color: var(--accent2);
-      background: rgba(79, 209, 197, 0.10);
+      background: var(--accent2-soft);
       padding: 2px 8px;
       border-radius: 20px;
-      border: 1px solid rgba(79, 209, 197, 0.18);
-      margin-left: 8px;  /* 离左侧 sec-title 文字留间距 */
+      border: 1px solid rgba(var(--accent2-rgb), 0.20);
+      margin-left: 8px;
+      white-space: nowrap;
     }
 
-    /* provider tab 切换：火山 / DeepSeek。沿用 .sec-badge 的胶囊形与字号，
-       激活态用 --accent 高亮，与 collapse-btn:hover 一致。 */
+    /* provider tab 切换：火山 / opencode / DeepSeek */
     .sec-tabs {
       display: flex;
       gap: 3px;
       margin-left: auto;
+      flex-shrink: 0;
     }
 
     .sec-tab {
@@ -388,7 +579,7 @@
       padding: 2px 8px;
       border-radius: 20px;
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--glass-soft);
       color: var(--text2);
       cursor: pointer;
       transition: all .15s;
@@ -406,56 +597,13 @@
       border-color: var(--accent);
     }
 
-    /* DeepSeek 视图：余额大字 + 三窗口 token 网格，复用 .stat 卡片 */
-    .ds-balance {
-      display: flex;
-      align-items: baseline;
-      gap: 7px;
-      margin-bottom: 11px;
-    }
-
-    .ds-bal-label {
-      font-size: 11.5px;
-      color: var(--text3);
-    }
-
-    .ds-bal-val {
-      font-size: 22px;
-      font-weight: 720;
-      letter-spacing: -0.3px;
-      color: var(--accent2);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .ds-bal-sub {
-      font-size: 11px;
-      color: var(--text3);
-      margin-left: auto;
-    }
-
-    .ds-note {
-      font-size: 11px;
-      color: var(--text3);
-      margin-top: 8px;
-    }
-
+    /* ---- 模型用量 ---- */
     .usage-total {
-      position: relative;  /* 作为今日累计悬浮窗的定位上下文 */
+      position: relative; /* 今日累计悬浮窗的定位上下文 */
       display: flex;
       align-items: baseline;
       gap: 7px;
       margin-bottom: 3px;
-    }
-
-    .usage-total .num {
-      font-size: 27px;
-      font-weight: 720;
-      letter-spacing: -0.5px;
-      font-variant-numeric: tabular-nums;
-      background: linear-gradient(135deg, #fff, var(--accent2));
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
     }
 
     .usage-total .unit {
@@ -467,10 +615,9 @@
       font-size: 11px;
       color: var(--green);
       margin-left: auto;
+      font-weight: 600;
     }
 
-    /* 今日累计分模型悬浮窗：复用 .pm-trigger/.pm-pop 的显示逻辑，
-       但定位相对 .usage-total，左右占满组件宽度 */
     .um-trigger .pm-pop {
       left: 0;
       right: 0;
@@ -481,11 +628,6 @@
       font-size: 11.5px;
       color: var(--text3);
       margin-bottom: 12px;
-    }
-
-    .usage-label b {
-      color: var(--text2);
-      font-weight: 600;
     }
 
     .usage-grid {
@@ -513,25 +655,19 @@
       font-size: 15px;
       font-weight: 650;
       margin-top: 2px;
-      font-variant-numeric: tabular-nums;
+      display: flex;
+      /* SVG 无文本基线，baseline 对齐会让 small 坠到元素底边；用 center 让 tk 与数字垂直居中 */
+      align-items: center;
+      gap: 3px;
     }
 
     .stat .v small {
       font-size: 11px;
       color: var(--text3);
       font-weight: 500;
-      margin-left: 2px;
     }
 
-    .stat.in .v {
-      color: var(--blue);
-    }
-
-    .stat.out .v {
-      color: var(--accent2);
-    }
-
-    /* cloud plan quota (火山方舟 CodingPlan) */
+    /* ---- 云端额度 ---- */
     .plan-list {
       display: flex;
       flex-direction: column;
@@ -539,7 +675,7 @@
     }
 
     .plan-bucket {
-      position: relative;  /* 作为 .pm-pop 的定位上下文，让悬浮窗对齐组件左右边框 */
+      position: relative; /* .pm-pop 的定位上下文 */
       display: flex;
       flex-direction: column;
       gap: 3px;
@@ -550,6 +686,7 @@
       align-items: baseline;
       justify-content: space-between;
       font-size: 12px;
+      gap: 6px;
     }
 
     .plan-bucket-head .pb-name {
@@ -561,15 +698,13 @@
       display: inline-flex;
       align-items: baseline;
       gap: 6px;
+      min-width: 0;
     }
 
     .plan-bucket-head .pb-val {
       font-variant-numeric: tabular-nums;
       color: var(--text);
-    }
-
-    .plan-bucket-head .pb-val b {
-      font-weight: 700;
+      white-space: nowrap;
     }
 
     .plan-bucket-head .pb-val small {
@@ -581,7 +716,7 @@
     .plan-bar {
       height: 5px;
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--glass-soft);
       overflow: hidden;
     }
 
@@ -608,9 +743,150 @@
       justify-content: space-between;
       font-size: 11px;
       color: var(--text3);
+      font-variant-numeric: tabular-nums;
     }
 
-    /* 分模型 token 明细：悬浮浮层，挂在「X%已用」后面，不占组件高度 */
+    .plan-note,
+    .ds-note {
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 6px;
+    }
+
+    .ds-balance {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      margin-bottom: 11px;
+    }
+
+    .ds-bal-label {
+      font-size: 11.5px;
+      color: var(--text3);
+    }
+
+    .ds-bal-sub {
+      font-size: 11px;
+      color: var(--text3);
+      margin-left: auto;
+    }
+
+    /* ---- SVG 渐变数字（全部数字渐变；仅大字按档位切换颜色，其余固定单色） ---- */
+    .gnum {
+      display: inline-block;
+      vertical-align: -0.3em;
+      line-height: 1;
+      overflow: visible;
+    }
+
+    .gnum text {
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", -apple-system, system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .gnum-lg {
+      height: 34px;
+    }
+
+    .gnum-lg text {
+      font-size: 27px;
+      font-weight: 720;
+    }
+
+    .gnum-md {
+      height: 19px;
+    }
+
+    .gnum-md text {
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .gnum-sm {
+      height: 15px;
+    }
+
+    .gnum-sm text {
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .gnum-bal {
+      height: 28px;
+    }
+
+    .gnum-bal text {
+      font-size: 22px;
+      font-weight: 720;
+    }
+
+    .gnum-pb {
+      height: 16px;
+    }
+
+    .gnum-pb text {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    #g-base stop:first-child {
+      stop-color: var(--grad-a);
+    }
+
+    #g-base stop:last-child {
+      stop-color: var(--grad-b);
+    }
+
+    #g-in stop:first-child {
+      stop-color: var(--grad-in-a);
+    }
+
+    #g-in stop:last-child {
+      stop-color: var(--grad-in-b);
+    }
+
+    #g-out stop:first-child {
+      stop-color: var(--grad-out-a);
+    }
+
+    #g-out stop:last-child {
+      stop-color: var(--grad-out-b);
+    }
+
+    #g-label stop:first-child {
+      stop-color: var(--grad-label-a);
+    }
+
+    #g-label stop:last-child {
+      stop-color: var(--grad-label-b);
+    }
+
+    #g-low stop:first-child {
+      stop-color: var(--grad-low-a);
+    }
+
+    #g-low stop:last-child {
+      stop-color: var(--grad-low-b);
+    }
+
+    #g-warn stop:first-child {
+      stop-color: var(--grad-warn-a);
+    }
+
+    #g-warn stop:last-child {
+      stop-color: var(--grad-warn-b);
+    }
+
+    #g-crit stop:first-child {
+      stop-color: var(--grad-crit-a);
+    }
+
+    #g-crit stop:last-child {
+      stop-color: var(--grad-crit-b);
+    }
+
+    /* ---- 分模型明细悬浮 ---- */
     .pm-trigger {
       cursor: help;
       display: inline-flex;
@@ -634,7 +910,7 @@
       position: absolute;
       top: calc(100% + 6px);
       left: 0;
-      right: 0;  /* 对齐组件左右边框，完全占满宽度 */
+      right: 0;
       z-index: 50;
       display: none;
       flex-direction: column;
@@ -667,7 +943,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      /* 去掉宽度限制，让模型名完整显示 */
     }
 
     .pm-pop .pm-hint {
@@ -677,27 +952,7 @@
       white-space: normal;
     }
 
-    .plan-note {
-      font-size: 11px;
-      color: var(--text3);
-      margin-top: 6px;
-    }
-
-    /* ---- current task ---- */
-    .task-card {
-      background: var(--card2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 9px 10px;
-      cursor: pointer;
-      transition: border-color .15s, background .15s;
-    }
-
-    .task-card:hover {
-      border-color: var(--accent);
-      background: rgba(124, 92, 255, 0.06);
-    }
-
+    /* ---- 任务列表 ---- */
     .section.tasks-section {
       flex: 1 1 auto;
       min-height: 0;
@@ -724,8 +979,23 @@
     }
 
     .task-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(var(--accent-rgb), 0.25);
       border-radius: 2px;
+    }
+
+    .task-card {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      cursor: pointer;
+      margin-bottom: 7px;
+      transition: border-color .15s, background .15s;
+    }
+
+    .task-card:hover {
+      border-color: rgba(var(--accent-rgb), 0.55);
+      background: var(--accent-soft);
     }
 
     .task-top {
@@ -745,6 +1015,7 @@
       gap: 4px;
       text-transform: uppercase;
       letter-spacing: 0.4px;
+      flex-shrink: 0;
     }
 
     .status-pill::before {
@@ -755,7 +1026,7 @@
     }
 
     .status-pill.running {
-      background: rgba(52, 211, 153, 0.14);
+      background: rgba(var(--green-rgb), 0.13);
       color: var(--green);
     }
 
@@ -765,7 +1036,7 @@
     }
 
     .status-pill.completed {
-      background: rgba(96, 165, 250, 0.12);
+      background: rgba(var(--blue-rgb), 0.12);
       color: var(--blue);
     }
 
@@ -775,7 +1046,7 @@
 
     .status-pill.idle,
     .status-pill.queued {
-      background: rgba(251, 191, 36, 0.12);
+      background: rgba(var(--amber-rgb), 0.12);
       color: var(--amber);
     }
 
@@ -786,7 +1057,7 @@
 
     .status-pill.error,
     .status-pill.failed {
-      background: rgba(248, 113, 113, 0.12);
+      background: rgba(var(--red-rgb), 0.12);
       color: var(--red);
     }
 
@@ -810,10 +1081,11 @@
     .mode-tag {
       font-size: 11px;
       color: var(--text2);
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--glass-soft);
       padding: 2px 6px;
       border-radius: 5px;
       border: 1px solid var(--border);
+      flex-shrink: 0;
     }
 
     .task-title {
@@ -837,8 +1109,7 @@
       display: flex;
       align-items: center;
       gap: 3px;
-      min-width: 0;          /* allow flex children to shrink */
-      /* remove fixed ratio, let them grow/shrink naturally */
+      min-width: 0;
     }
 
     .task-meta .m-text {
@@ -846,125 +1117,6 @@
       white-space: nowrap;
       text-overflow: ellipsis;
       min-width: 0;
-    }
-
-    .task-meta svg {
-      width: 11px;
-      height: 11px;
-      opacity: 0.8;
-      flex-shrink: 0;
-    }
-
-    /* live tool */
-    .live-tool {
-      margin-top: 10px;
-      padding: 8px 10px;
-      border-radius: 10px;
-      background: rgba(124, 92, 255, 0.08);
-      border: 1px solid rgba(124, 92, 255, 0.18);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 11px;
-    }
-
-    .live-tool.idle {
-      background: rgba(255, 255, 255, 0.03);
-      border-color: var(--border);
-    }
-
-    .spinner {
-      width: 13px;
-      height: 13px;
-      border: 2px solid rgba(124, 92, 255, 0.25);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      flex-shrink: 0;
-    }
-
-    .live-tool.idle .spinner {
-      animation: none;
-      border-color: var(--border);
-      border-top-color: var(--text3);
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    .live-tool .lt-name {
-      font-weight: 650;
-      color: var(--accent);
-    }
-
-    .live-tool.idle .lt-name {
-      color: var(--text3);
-    }
-
-    .live-tool .lt-time {
-      margin-left: auto;
-      color: var(--text3);
-      font-variant-numeric: tabular-nums;
-      font-size: 11px;
-    }
-
-    /* activity feed */
-    .feed {
-      margin-top: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .feed-item {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 11px;
-      color: var(--text2);
-      padding: 2px 0;
-    }
-
-    .feed-item .ico {
-      width: 14px;
-      text-align: center;
-      flex-shrink: 0;
-      font-size: 11px;
-    }
-
-    .feed-item .txt {
-      flex: 1;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .feed-item .t {
-      color: var(--text3);
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
-      flex-shrink: 0;
-    }
-
-    .feed-item.model .ico {
-      color: var(--blue);
-    }
-
-    .feed-item.tool_start .ico {
-      color: var(--amber);
-    }
-
-    .feed-item.tool_end .ico {
-      color: var(--green);
-    }
-
-    .feed-item.turn_start .ico,
-    .feed-item.turn_end .ico {
-      color: var(--accent);
     }
 
     .empty {
@@ -987,21 +1139,49 @@
       margin-bottom: 8px;
     }
 
-    .flash {
-      animation: flash .5s ease;
+    .spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(var(--accent-rgb), 0.25);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
     }
 
-    @keyframes flash {
-      0% {
-        background-color: rgba(124, 92, 255, 0.15);
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
       }
+    }
 
-      100% {}
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+      }
     }
   </style>
 </head>
 
 <body>
+  <!-- 隐藏 SVG 渐变定义：数字文字用 fill="url(#g-*)" 引用，避开 background-clip: text
+       在 WebView2 下 backdrop-filter/transform 共存的色块坑（规范 §5） -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="g-base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-in" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-out" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-label" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-low" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-warn" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+      <linearGradient id="g-crit" x1="0" y1="0" x2="1" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+    </defs>
+  </svg>
+
   <div class="widget" id="widget">
     <!-- header (drag handle) -->
     <div class="header" id="dragHandle">
@@ -1012,11 +1192,36 @@
       </div>
       <div class="clock" id="clock">--:--</div>
       <button class="collapse-btn" id="collapseBtn" title="折叠">
-        <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"
-          stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+          stroke-linejoin="round">
           <polyline points="5 9 8 6 11 9" />
         </svg>
       </button>
+      <button class="theme-btn" id="themeBtn" title="浅色 / 深色切换" aria-label="浅色深色切换">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round" class="icon-sun">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round" class="icon-moon">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+        </svg>
+      </button>
+      <!-- opacity-btn 用 div 而非 button：pop 是块级结构，button 内容模型不允许
+           div，浏览器解析会把 pop 踢出按钮导致点击区域错位、弹层拖拽即关 -->
+      <div class="opacity-btn" id="opacityBtn" title="窗口透明度" aria-label="窗口透明度">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M12 2s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11Z" />
+          <path d="M8.5 14.5a4 4 0 0 0 2.5 3" />
+        </svg>
+        <div class="opacity-pop" id="opacityPop">
+          <div class="op-head"><span>窗口透明度</span><span class="op-val" id="opVal">100%</span></div>
+          <input type="range" id="opRange" min="30" max="100" step="10" value="100"
+            aria-label="窗口透明度滑块">
+        </div>
+      </div>
       <button class="close-btn" id="closeBtn" title="关闭">×</button>
     </div>
 
@@ -1051,16 +1256,16 @@
       <div class="usage-grid">
         <div class="stat in">
           <div class="k">今日输入 Input</div>
-          <div class="v" id="inTokens">0</div>
+          <div class="v"><span class="v-num" id="inTokens">0</span><small>tk</small></div>
         </div>
         <div class="stat out">
           <div class="k">今日输出 Output</div>
-          <div class="v" id="outTokens">0</div>
+          <div class="v"><span class="v-num" id="outTokens">0</span><small>tk</small></div>
         </div>
       </div>
     </div>
 
-    <!-- cloud quota (火山方舟 CodingPlan / DeepSeek，tab 切换) -->
+    <!-- cloud quota (火山方舟 CodingPlan / opencode / DeepSeek，tab 切换) -->
     <div class="section" id="planSection" style="display:none">
       <div class="sec-head">
         <div class="sec-title">云端额度</div>
@@ -1082,19 +1287,19 @@
         <div class="usage-grid">
           <div class="stat in">
             <div class="k">今日 Input</div>
-            <div class="v" id="ocTodayIn">0</div>
+            <div class="v"><span class="v-num" id="ocTodayIn">0</span><small>tk</small></div>
           </div>
           <div class="stat out">
             <div class="k">今日 Output</div>
-            <div class="v" id="ocTodayOut">0</div>
+            <div class="v"><span class="v-num" id="ocTodayOut">0</span><small>tk</small></div>
           </div>
           <div class="stat">
             <div class="k">近7天</div>
-            <div class="v" id="ocWeek">0</div>
+            <div class="v"><span class="v-num" id="ocWeek">0</span><small>tk</small></div>
           </div>
           <div class="stat">
             <div class="k">近30天</div>
-            <div class="v" id="ocMonth">0</div>
+            <div class="v"><span class="v-num" id="ocMonth">0</span><small>tk</small></div>
           </div>
         </div>
         <div class="ds-note" id="ocNote"></div>
@@ -1109,26 +1314,26 @@
         <div class="usage-grid">
           <div class="stat in">
             <div class="k">今日 Input</div>
-            <div class="v" id="dsTodayIn">0</div>
+            <div class="v"><span class="v-num" id="dsTodayIn">0</span><small>tk</small></div>
           </div>
           <div class="stat out">
             <div class="k">今日 Output</div>
-            <div class="v" id="dsTodayOut">0</div>
+            <div class="v"><span class="v-num" id="dsTodayOut">0</span><small>tk</small></div>
           </div>
           <div class="stat">
             <div class="k">近7天</div>
-            <div class="v" id="dsWeek">0</div>
+            <div class="v"><span class="v-num" id="dsWeek">0</span><small>tk</small></div>
           </div>
           <div class="stat">
             <div class="k">近30天</div>
-            <div class="v" id="dsMonth">0</div>
+            <div class="v"><span class="v-num" id="dsMonth">0</span><small>tk</small></div>
           </div>
         </div>
         <div class="ds-note" id="dsNote"></div>
       </div>
     </div>
 
-    <!-- current task + live activity -->
+    <!-- task list -->
     <div class="section tasks-section">
       <div class="sec-head">
         <div class="sec-title">任务列表</div>
@@ -1144,7 +1349,6 @@
 
   <script>
     let api = null;
-    let prevTotal = 0;
     let refreshTimer = null;
     let started = false;
     // 防堆积：上一次 status() 未返回时跳过本次轮询。pywebview 5.4 的 JS 桥每次
@@ -1163,7 +1367,7 @@
     // 是否已完成首次成功渲染。失败时若已渲染过，保留上次数据不动，避免界面
     // 残留 #initStatus 的"已连接，读取数据…"或被清空。
     let firstRenderDone = false;
-    // 当前云端额度 tab：'volc'（火山套餐）或 'deepseek'。默认火山，与原行为一致。
+    // 当前云端额度 tab：'volc' / 'opencode' / 'deepseek'。默认火山。
     let _provider = 'volc';
 
     const fmt = (n) => {
@@ -1174,17 +1378,65 @@
     };
     const fmtFull = (n) => n.toLocaleString('en-US');
 
-    const TOOL_ICONS = {
-      tool_start: '⚡', tool_end: '✓', model: '🧠', turn_start: '▶', turn_end: '■'
-    };
-    const TOOL_LABELS = {
-      Bash: '执行命令', Read: '读取文件', Write: '写入文件', Edit: '编辑文件',
-      Glob: '搜索文件', Grep: '搜索内容', TodoWrite: '更新计划', Agent: '启动子代理',
-      Task: '启动子代理', WebFetch: '网络请求', WebSearch: '网络搜索',
-      AskUserQuestion: '询问用户', EnterPlanMode: '进入计划', ExitPlanMode: '确认计划',
-      Skill: '调用技能', ReadSessionContext: '读取会话', SendMessage: '发送消息',
-      TaskStop: '停止任务'
-    };
+    /* ---- SVG 渐变数字（规范 §5） ---- */
+    const NS = 'http://www.w3.org/2000/svg';
+    const GY = { 'gnum-lg': 26, 'gnum-md': 14, 'gnum-sm': 11, 'gnum-bal': 21, 'gnum-pb': 11 };
+    const FS = { 'gnum-lg': 27, 'gnum-md': 15, 'gnum-sm': 11.5, 'gnum-bal': 22, 'gnum-pb': 12 };
+
+    // 造一个 SVG 渐变数字。set() 更新文本并重测宽；display:none 的容器（如未激活
+    // 的 provider tab）里 getComputedTextLength() 返回 0，用估算宽度占位，切到该
+    // 视图后统一 remeasure()（规范坑 #5）。
+    function gradText(cls, gradId) {
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'gnum ' + cls);
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('y', GY[cls]);
+      t.setAttribute('fill', 'url(#' + gradId + ')');
+      svg.appendChild(t);
+      let last = '';
+      function set(v) {
+        last = v;
+        t.textContent = v;
+        let w = 0;
+        try { w = t.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!w || !isFinite(w) || w <= 1) w = String(v).length * FS[cls] * 0.62;
+        svg.setAttribute('width', Math.max(2, Math.ceil(w) + 4));
+      }
+      function setGrad(id) { t.setAttribute('fill', 'url(#' + id + ')'); }
+      function remeasure() { if (last !== '') set(last); }
+      const api = { svg, text: t, set, setGrad, remeasure };
+      svg._g = api;
+      return api;
+    }
+    // 把 <span id="..."> 替换为 SVG 渐变数字，返回 api
+    function mount(sel, cls, gradId) {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const g = gradText(cls, gradId);
+      el.replaceWith(g.svg);
+      return g;
+    }
+
+    // 渲染后把 ".pb-num" 文本节点统一升级为 SVG 渐变数字（plan 百分比）
+    function upgradePct(scope) {
+      document.querySelectorAll(scope + ' .pb-num').forEach(el => {
+        const g = gradText('gnum-pb', 'g-base');
+        g.set(el.textContent);
+        el.replaceWith(g.svg);
+      });
+    }
+    // 视图内所有 SVG 渐变数字重新实测宽度（切 tab 后隐藏容器已可见，修正估算）
+    function remeasureView(scope) {
+      document.querySelectorAll(scope + ' .gnum').forEach(s => { if (s._g) s._g.remeasure(); });
+    }
+
+    // 大字档位：<3000万 绿 / 3000万-8000万 默认 / 8000万-1亿 琥珀 / >=1亿 红（规范 §5.3）
+    function tierGrad(total) {
+      if (total < 30e6) return 'g-low';
+      if (total < 80e6) return 'g-base';
+      if (total < 100e6) return 'g-warn';
+      return 'g-crit';
+    }
 
     function startPolling() {
       if (started) return;
@@ -1199,9 +1451,6 @@
       if (refreshInFlight) return;
       refreshInFlight = true;
       try {
-        // 用 Promise.race 给 status() 加超时。pywebview 的 JS 桥没有原生超时，
-        // 后端 status() 理论上已无网络调用（火山走后台线程），但保留超时作为
-        // 双保险，避免任何意外阻塞导致 refresh 永久卡在这一帧。
         const s = await Promise.race([
           api.status(),
           new Promise((_, reject) =>
@@ -1221,17 +1470,14 @@
         document.getElementById('connStatus').textContent = '实时连接';
       } catch (e) {
         failCount++;
-        // 连续 FAIL_THRESHOLD 次失败才显示"重连中"，单次抖动保持"实时连接"，
-        // 避免网络瞬时波动导致状态频繁闪烁。
+        // 连续 FAIL_THRESHOLD 次失败才显示"重连中"，单次抖动保持"实时连接"。
         if (failCount >= FAIL_THRESHOLD) {
           document.getElementById('liveDot').className = 'dot';
           document.getElementById('connStatus').textContent = '重连中…';
         }
         // 失败时保留上次成功渲染的数据，不清空界面、不重新显示 #initStatus。
-        // 只有"从未成功渲染过"才让 #initStatus 继续显示加载态。
         console.error('refresh error:', e);
       } finally {
-        // 无论成功失败都释放锁，下一轮 setInterval 可正常发起。
         refreshInFlight = false;
       }
     }
@@ -1242,24 +1488,19 @@
     }
 
     function renderUsage(u) {
-      // Today is the headline. The widget previously showed only the most recent
-      // request's usage (read from pruned rollout files); now it reads the
-      // persistent `model_usage` table, so "today" is the true cumulative total
-      // across all tasks for the current day.
+      // Today is the headline: reads the persistent `model_usage` table,
+      // "today" is the true cumulative total across all tasks for the day.
       const today = u.today || {};
       const total = today.totalTokens || 0;
-      const el = document.getElementById('totalTokens');
-      el.textContent = fmt(total);
-      if (total !== prevTotal && prevTotal > 0) {
-        el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-      }
-      prevTotal = total;
+      // 大字渐变 + 档位变色（仅大字，其余数字固定单色）
+      numObj.set(fmt(total));
+      numObj.setGrad(tierGrad(total));
 
-      document.getElementById('inTokens').innerHTML = fmt(today.inputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('outTokens').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('todayTokens').textContent = fmt(today.totalTokens || 0);
-      document.getElementById('weekTokens').textContent = fmt((u.week || {}).totalTokens || 0);
-      document.getElementById('allTokens').textContent = fmt((u.total || {}).totalTokens || 0);
+      G.inTokens.set(fmt(today.inputTokens || 0));
+      G.outTokens.set(fmt(today.outputTokens || 0));
+      G.todayTokens.set(fmt(today.totalTokens || 0));
+      G.weekTokens.set(fmt((u.week || {}).totalTokens || 0));
+      G.allTokens.set(fmt((u.total || {}).totalTokens || 0));
       const todayReq = today.requests || 0;
       const allReq = (u.total || {}).requests || 0;
       document.getElementById('reqBadge').textContent = todayReq + ' 次请求 / 累计 ' + allReq;
@@ -1288,7 +1529,6 @@
       section.style.display = '';
 
       // 套餐档位 badge：优先用用户配置的 tier（如 Pro），否则显示套餐类型名。
-      // 注意接口的 rawStatus(Running 等)是运行状态、非档位，不在这里展示。
       const badge = document.getElementById('planBadge');
       const isCoding = (p.planType || 'coding') === 'coding';
       const planName = isCoding ? 'CodingPlan' : 'AgentPlan';
@@ -1304,7 +1544,6 @@
         const cls = pct >= 90 ? 'crit' : (pct >= 70 ? 'warn' : 'ok');
         // 分模型 token 明细：悬浮浮层挂在「X%已用」后面，不占组件高度。
         // needsConfig=true（未配 VOLC_PLAN_START）-> 浮层提示去配置；否则列各模型。
-        // 图标前显示本窗口各模型 token 总计。
         let popHtml = '';
         if (isCoding) {
           if (b.needsConfig) {
@@ -1317,8 +1556,8 @@
           }
         }
         const head = isCoding
-          ? `<span class="pb-left"><span class="pb-name">${b.label}</span>${popHtml}</span><span class="pb-val"><b>${(b.usedPct || 0).toFixed(1)}%</b><small> 已用</small></span>`
-          : `<span class="pb-left"><span class="pb-name">${b.label}</span></span><span class="pb-val"><b>${fmt(b.used)}</b><small> / ${fmt(b.quota)}</small></span>`;
+          ? `<span class="pb-left"><span class="pb-name">${b.label}</span>${popHtml}</span><span class="pb-val"><span class="pb-num">${(b.usedPct || 0).toFixed(1)}%</span><small> 已用</small></span>`
+          : `<span class="pb-left"><span class="pb-name">${b.label}</span></span><span class="pb-val"><span class="pb-num">${fmt(b.used)}</span><small> / ${fmt(b.quota)}</small></span>`;
         const foot = isCoding
           ? `剩余 ${(b.remainingPct || 0).toFixed(1)}%`
           : `剩余 ${fmt(b.remaining)} (${(b.remainingPct || 0).toFixed(1)}%)`;
@@ -1330,6 +1569,8 @@
       <div class="plan-bucket-foot"><span>${foot}</span><span>${fmtResetCountdown(b.key, b.resetMs)}</span></div>
     </div>`;
       }).join('');
+      upgradePct('#planList');
+      if (_provider === 'volc') remeasureView('#planList');
 
       const note = document.getElementById('planNote');
       note.textContent = p.error ? ('⚠ ' + p.error) : ('更新于 ' + (p.updatedAt || '').slice(11, 19) + ' · 数据来源: 火山方舟 OpenAPI');
@@ -1338,29 +1579,27 @@
     function renderProviderUsage(usage, balance, opts) {
       // 云端额度 tab 的渲染（opencode/DeepSeek 共用）：token 三窗口 + 余额。
       // opts.noBalance=true 表示该厂商无余额 API（opencode），余额格显示「—」。
-      // section 显隐由 _provider 决定（switchProvider 控制），这里只填数据。
       const opts2 = opts || {};
-      const balEl = document.getElementById('dsBalance');
       const balSub = document.getElementById('dsBalSub');
       const note = document.getElementById('dsNote');
 
       // 余额：后端返回字符串金额（如 "1.16"），currency 为 CNY/USD。
       if (!opts2.noBalance && balance && balance.enabled && balance.balance !== '') {
         const cur = balance.currency === 'USD' ? '$' : '¥';
-        balEl.textContent = cur + balance.balance;
+        G.dsBalance.set(cur + balance.balance);
         balSub.textContent = balance.isAvailable ? '' : '余额不足';
       } else {
-        balEl.textContent = opts2.noBalance ? '—' : '--';
+        G.dsBalance.set(opts2.noBalance ? '—' : '--');
         balSub.textContent = opts2.noBalance ? '无余额 API' : (balance && balance.error ? balance.error : (balance && balance.enabled ? '查询中…' : '未配置'));
       }
 
       // token 三窗口：今日/近7天/近30天
       const u = usage || {};
       const today = u.today || {}, week = u.week || {}, month = u.month || {};
-      document.getElementById('dsTodayIn').innerHTML = fmt(today.inputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('dsTodayOut').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('dsWeek').innerHTML = fmt(week.totalTokens || 0) + ' <small>tk</small>';
-      document.getElementById('dsMonth').innerHTML = fmt(month.totalTokens || 0) + ' <small>tk</small>';
+      G.dsTodayIn.set(fmt(today.inputTokens || 0));
+      G.dsTodayOut.set(fmt(today.outputTokens || 0));
+      G.dsWeek.set(fmt(week.totalTokens || 0));
+      G.dsMonth.set(fmt(month.totalTokens || 0));
 
       const ts = (balance && balance.updatedAt) ? balance.updatedAt : '';
       note.textContent = u.enabled
@@ -1372,10 +1611,10 @@
     function renderOpencode(usage) {
       const u = usage || {};
       const today = u.today || {}, week = u.week || {}, month = u.month || {};
-      document.getElementById('ocTodayIn').innerHTML = fmt(today.inputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('ocTodayOut').innerHTML = fmt(today.outputTokens || 0) + ' <small>tk</small>';
-      document.getElementById('ocWeek').innerHTML = fmt(week.totalTokens || 0) + ' <small>tk</small>';
-      document.getElementById('ocMonth').innerHTML = fmt(month.totalTokens || 0) + ' <small>tk</small>';
+      G.ocTodayIn.set(fmt(today.inputTokens || 0));
+      G.ocTodayOut.set(fmt(today.outputTokens || 0));
+      G.ocWeek.set(fmt(week.totalTokens || 0));
+      G.ocMonth.set(fmt(month.totalTokens || 0));
     }
 
     // 渲染 opencode Go 套餐余量进度条（dashboard 抓取，复用 .plan-bucket 样式）。
@@ -1395,12 +1634,14 @@
         return `<div class="plan-bucket">
       <div class="plan-bucket-head">
         <span class="pb-left"><span class="pb-name">${b.label}</span></span>
-        <span class="pb-val"><b>${(b.usedPct || 0).toFixed(1)}%</b><small> 已用</small></span>
+        <span class="pb-val"><span class="pb-num">${(b.usedPct || 0).toFixed(1)}%</span><small> 已用</small></span>
       </div>
       <div class="plan-bar"><div class="plan-bar-fill ${cls}" style="width:${pct}%"></div></div>
       <div class="plan-bucket-foot"><span>剩余 ${(b.remainingPct || 0).toFixed(1)}%</span><span>${fmtResetCountdown(b.key, b.resetMs)}</span></div>
     </div>`;
       }).join('');
+      upgradePct('#ocGoList');
+      if (_provider === 'opencode') remeasureView('#ocGoList');
       note.textContent = go.error
         ? ('⚠ ' + go.error)
         : ('更新于 ' + (go.updatedAt || '').slice(11, 19) + ' · 来源: opencode dashboard');
@@ -1417,6 +1658,9 @@
       document.getElementById('deepseekBody').style.display = (prov === 'deepseek') ? '' : 'none';
       // planBadge 是火山专属概念（套餐档位），其他 tab 下隐藏。
       document.getElementById('planBadge').style.display = (prov === 'volc') ? '' : 'none';
+      // 刚显示的视图里 SVG 数字此前在隐藏容器中只能估算宽度，现在实测修正（坑 #5）
+      const scope = prov === 'volc' ? '#planList' : (prov === 'opencode' ? '#opencodeBody' : '#deepseekBody');
+      remeasureView(scope);
     }
 
     document.getElementById('providerTabs').addEventListener('click', (e) => {
@@ -1508,13 +1752,64 @@
       if (s < 86400) return Math.floor(s / 3600) + '小时前';
       return Math.floor(s / 86400) + '天前';
     }
-    function elapsedSince(iso, nowIso) {
-      const a = new Date(iso).getTime(); const b = nowIso ? new Date(nowIso).getTime() : Date.now();
-      const s = Math.max(0, Math.floor((b - a) / 1000));
-      if (s < 60) return s + 's';
-      return Math.floor(s / 60) + 'm' + (s % 60) + 's';
+
+    /* ---- theme 切换（localStorage 记忆，默认深色） ---- */
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      // 当前深色显示太阳（提示可切浅色），浅色显示月亮
+      document.querySelector('.theme-btn .icon-moon').style.display = theme === 'dark' ? 'none' : 'block';
+      document.querySelector('.theme-btn .icon-sun').style.display = theme === 'dark' ? 'block' : 'none';
+      try { localStorage.setItem('zcodeWidgetTheme', theme); } catch (e) { /* 隐私模式等异常忽略 */ }
+      // 主题令牌变化后 SVG 渐变 stop-color 由 CSS 变量驱动，无需手动重渲染
     }
-    function tsHHMMSS(iso) { try { return new Date(iso).toISOString().slice(11, 19); } catch { return ''; } }
+    let _theme = 'dark';
+    // 主题按钮已隐藏：固定深色，不再读取 localStorage，避免残留浅色记忆导致启动变浅色
+    applyTheme(_theme);
+    document.getElementById('themeBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+
+    /* ---- 窗口透明度（滑块 30%-100%，步长 10，localStorage 记忆，桥 setOpacity） ---- */
+    let _opacity = 100;
+    try {
+      const v = parseInt(localStorage.getItem('zcodeWidgetOpacity'), 10);
+      if (v >= 30 && v <= 100) _opacity = v;
+    } catch (e) { /* ignore */ }
+    const opRange = document.getElementById('opRange');
+    const opVal = document.getElementById('opVal');
+
+    function applyOpacity(v) {
+      _opacity = v;
+      opRange.value = v;
+      opVal.textContent = v + '%';
+      // 滑块已填充段用 accent2 色（--op-fill 变量驱动渐变截止点）
+      opRange.style.setProperty('--op-fill', v + '%');
+      try { localStorage.setItem('zcodeWidgetOpacity', String(v)); } catch (e) { /* ignore */ }
+      // 桥调用：窗口整体透明度。无桥（浏览器直开）时只更新 UI。
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.setOpacity) {
+        window.pywebview.api.setOpacity(v / 100);
+      }
+    }
+    // 拖动节流：input 高频触发，80ms 合并一次桥调用
+    let _opTimer = null;
+    opRange.addEventListener('input', () => {
+      const v = parseInt(opRange.value, 10);
+      opVal.textContent = v + '%';
+      if (_opTimer) clearTimeout(_opTimer);
+      _opTimer = setTimeout(() => applyOpacity(v), 80);
+    });
+    // 弹层开关：点按钮展开/收起；点弹窗内部不切换（滑块点击会冒泡到按钮）；
+    // 点外部收起
+    const opacityPop = document.getElementById('opacityPop');
+    document.getElementById('opacityBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target.closest('.opacity-pop')) return;
+      opacityPop.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.opacity-btn')) opacityPop.classList.remove('open');
+    });
 
     /* ---- events ---- */
     document.getElementById('closeBtn').addEventListener('click', () => { if (api && api.quit) api.quit(); });
@@ -1614,6 +1909,8 @@
       if (window.pywebview && window.pywebview.api) {
         api = window.pywebview.api;
         setInit('已连接，读取数据…');
+        // 恢复记忆的透明度（桥就绪后才能真正应用到窗口）
+        if (_opacity !== 100) applyOpacity(_opacity);
         startPolling();
         return true;
       }
@@ -1632,6 +1929,28 @@
       if (retries > 0) setTimeout(() => waitForApi(retries - 1), 300);
       else setInit('连接失败：pywebview 桥接未就绪');
     })(20);  // try for ~6s
+
+    /* ---- boot：挂载 SVG 渐变数字（先于渲染函数，渲染时直接 g.set） ---- */
+    const numObj = mount('#totalTokens', 'gnum-lg', 'g-base');
+    const G = {
+      inTokens: mount('#inTokens', 'gnum-md', 'g-in'),
+      outTokens: mount('#outTokens', 'gnum-md', 'g-out'),
+      todayTokens: mount('#todayTokens', 'gnum-sm', 'g-label'),
+      weekTokens: mount('#weekTokens', 'gnum-sm', 'g-label'),
+      allTokens: mount('#allTokens', 'gnum-sm', 'g-label'),
+      dsBalance: mount('#dsBalance', 'gnum-bal', 'g-base'),
+      ocTodayIn: mount('#ocTodayIn', 'gnum-md', 'g-in'),
+      ocTodayOut: mount('#ocTodayOut', 'gnum-md', 'g-out'),
+      ocWeek: mount('#ocWeek', 'gnum-md', 'g-base'),
+      ocMonth: mount('#ocMonth', 'gnum-md', 'g-base'),
+      dsTodayIn: mount('#dsTodayIn', 'gnum-md', 'g-in'),
+      dsTodayOut: mount('#dsTodayOut', 'gnum-md', 'g-out'),
+      dsWeek: mount('#dsWeek', 'gnum-md', 'g-base'),
+      dsMonth: mount('#dsMonth', 'gnum-md', 'g-base'),
+    };
+    // 初始占位（隐藏 tab 里估算宽度，切换时 remeasure 修正）
+    numObj.set('0');
+    Object.keys(G).forEach(k => { if (G[k]) G[k].set('0'); });
   </script>
 </body>
 
