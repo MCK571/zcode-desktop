@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+out/
+
+# 敏感凭证（含火山 AK/DeepSeek key/opencode cookie）
+.volc.env
+
+# 日志与临时文件
+*.log
+probe*.png
+probe*.py
