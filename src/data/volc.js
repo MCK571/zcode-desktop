@@ -45,7 +45,12 @@ function loadEnvFile(p) {
   }
 }
 
-for (const p of [path.join(process.cwd(), '.volc.env'), path.join(os.homedir(), '.volc.env')]) {
+// 凭证查找目录：exe 同目录（portable 用 PORTABLE_EXECUTABLE_DIR——便携版
+// 自解压运行时 cwd 不可靠，实测双击 exe 读不到同目录 .volc.env）> 家目录。
+// 开发模式（npx electron）用 cwd（项目根放了 .volc.env）。
+const EXE_DIR = process.env.PORTABLE_EXECUTABLE_DIR
+  || (process.defaultApp ? process.cwd() : path.dirname(process.execPath || ''));
+for (const p of [path.join(EXE_DIR, '.volc.env'), path.join(os.homedir(), '.volc.env')]) {
   if (fs.existsSync(p)) { loadEnvFile(p); break; }
 }
 

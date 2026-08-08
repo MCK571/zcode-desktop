@@ -1,6 +1,6 @@
 {
   "name": "zcode-usage-widget",
-  "version": "1.0.0",
+  "version": "2.0.1",
   "description": "ZCode 用量监控桌面组件（Electron 版，真磨砂 Acrylic）",
   "main": "src/main.js",
   "scripts": {
