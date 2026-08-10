@@ -25,6 +25,19 @@ const IS_WIN11 = process.platform === 'win32' &&
 
 app.setAppUserModelId('Oct1AtJoe.ZCodeUsageWidget');
 
+// 单实例锁：重复双击 bat 不叠窗，聚焦已有窗口
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
+}
+
 let win = null;
 let api = null;
 

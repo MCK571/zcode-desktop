@@ -17,7 +17,7 @@
       /* ---- 玻璃材质（纯黑基调 + 低 alpha 高透：壁纸色调透出但压暗，
            白字可读；顶部天光 + 方向性描边给玻璃感） ---- */
       --glass-rgb: 10, 10, 10;
-      --glass-alpha: 0.25; /* 高透明：壁纸为主，黑色压暗 */
+      --glass-alpha: 0.25; /* 玻璃压暗层 alpha（默认 0.25 = 滑块 90%，JS 滑块可覆盖） */
       --glass: rgba(var(--glass-rgb), var(--glass-alpha));
       --glass-filter: blur(32px) saturate(115%);
       --glass-strong: rgba(40, 44, 52, 0.50);
@@ -365,11 +365,6 @@
       display: none;
     }
 
-    /* 透明度按钮暂时隐藏（用户要求；setOpacity 桥与记忆逻辑保留，需要时放开即可） */
-    .opacity-btn {
-      display: none;
-    }
-
     /* ---- 透明度弹层（挂在 opacity-btn 下，点击展开） ---- */
     .opacity-btn {
       position: relative;
@@ -411,26 +406,38 @@
     }
 
     .opacity-pop input[type="range"] {
-      width: 100%;
-      height: 4px;
-      border-radius: 2px;
       -webkit-appearance: none;
       appearance: none;
+      width: 100%;
+      height: 4px;
       outline: none;
       cursor: pointer;
+      background: transparent;
+      border-radius: 2px;
+    }
+
+    .opacity-pop input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 2px;
       background: linear-gradient(90deg, var(--accent2), var(--accent2) var(--op-fill, 100%),
           rgba(255, 255, 255, 0.12) var(--op-fill, 100%));
     }
 
     .opacity-pop input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
+      appearance: none;
       width: 13px;
       height: 13px;
       border-radius: 50%;
       background: #fff;
-      border: 2px solid var(--accent);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 0 0 2px var(--accent), 0 1px 4px rgba(0, 0, 0, 0.3);
       cursor: pointer;
+      margin-top: -4.5px;
+    }
+
+    .opacity-pop input[type="range"]::-webkit-slider-thumb::after,
+    .opacity-pop input[type="range"]::-webkit-slider-thumb::before {
+      content: none;
     }
 
     /* ---- collapsed (icon) state ---- */
@@ -1265,16 +1272,16 @@
       </button>
       <!-- opacity-btn 用 div 而非 button：pop 是块级结构，button 内容模型不允许
            div，浏览器解析会把 pop 踢出按钮导致点击区域错位、弹层拖拽即关 -->
-      <div class="opacity-btn" id="opacityBtn" title="窗口透明度" aria-label="窗口透明度">
+      <div class="opacity-btn" id="opacityBtn" title="玻璃通透度" aria-label="玻璃通透度">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round">
           <path d="M12 2s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11Z" />
           <path d="M8.5 14.5a4 4 0 0 0 2.5 3" />
         </svg>
         <div class="opacity-pop" id="opacityPop">
-          <div class="op-head"><span>窗口透明度</span><span class="op-val" id="opVal">100%</span></div>
-          <input type="range" id="opRange" min="30" max="100" step="10" value="100"
-            aria-label="窗口透明度滑块">
+          <div class="op-head"><span>玻璃通透度</span><span class="op-val" id="opVal">90%</span></div>
+          <input type="range" id="opRange" min="30" max="100" step="10" value="90"
+            aria-label="玻璃通透度滑块">
         </div>
       </div>
       <button class="close-btn" id="closeBtn" title="关闭">×</button>
@@ -1828,26 +1835,29 @@
       applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
     });
 
-    /* ---- 窗口透明度（滑块 30%-100%，步长 10，localStorage 记忆，桥 setOpacity） ---- */
-    let _opacity = 100;
+    /* ---- 玻璃通透度（滑块 30%-100%，步长 10，localStorage 记忆；
+         100% 最通透（壁纸主导），30% 最实（玻璃压暗）。
+         映射 --glass-alpha = (115 - v) / 100，默认 90 → alpha 0.25（原观感）。
+         只改 CSS 变量，不动窗口透明度 ---- */
+    let _glass = 90;
     try {
-      const v = parseInt(localStorage.getItem('zcodeWidgetOpacity'), 10);
-      if (v >= 30 && v <= 100) _opacity = v;
+      const v = parseInt(localStorage.getItem('zcodeWidgetGlass'), 10);
+      if (v >= 30 && v <= 100) _glass = v;
     } catch (e) { /* ignore */ }
     const opRange = document.getElementById('opRange');
     const opVal = document.getElementById('opVal');
+    const opMin = Number(opRange.min);
+    const opMax = Number(opRange.max);
 
-    function applyOpacity(v) {
-      _opacity = v;
+    function applyGlass(v) {
+      _glass = v;
       opRange.value = v;
       opVal.textContent = v + '%';
-      // 滑块已填充段用 accent2 色（--op-fill 变量驱动渐变截止点）
-      opRange.style.setProperty('--op-fill', v + '%');
-      try { localStorage.setItem('zcodeWidgetOpacity', String(v)); } catch (e) { /* ignore */ }
-      // 桥调用：窗口整体透明度。无桥（浏览器直开）时只更新 UI。
-      if (window.zapi && window.zapi.setOpacity) {
-        window.zapi.setOpacity(v / 100);
-      }
+      // 填充位置按 range 实际轨道比例计算，避免 min 值造成右侧残段
+      opRange.style.setProperty('--op-fill', ((v - opMin) / (opMax - opMin) * 100) + '%');
+      // 玻璃压暗层 alpha：改根元素 CSS 变量，页面自动重绘
+      document.documentElement.style.setProperty('--glass-alpha', ((115 - v) / 100).toFixed(2));
+      try { localStorage.setItem('zcodeWidgetGlass', String(v)); } catch (e) { /* ignore */ }
     }
     // 拖动节流：input 高频触发，80ms 合并一次桥调用
     let _opTimer = null;
@@ -1855,7 +1865,7 @@
       const v = parseInt(opRange.value, 10);
       opVal.textContent = v + '%';
       if (_opTimer) clearTimeout(_opTimer);
-      _opTimer = setTimeout(() => applyOpacity(v), 80);
+      _opTimer = setTimeout(() => applyGlass(v), 80);
     });
     // 弹层开关：点按钮展开/收起；点弹窗内部不切换（滑块点击会冒泡到按钮）；
     // 点外部收起
@@ -2020,8 +2030,8 @@
         if (window.zapi.onBlur) {
           window.zapi.onBlur(() => { window.__toggleExpand && window.__toggleExpand(true); });
         }
-        // 恢复记忆的透明度（桥就绪后才能真正应用到窗口）
-        if (_opacity !== 100) applyOpacity(_opacity);
+        // 恢复记忆的玻璃通透度（CSS 变量，立即可生效）
+        applyGlass(_glass);
         startPolling();
         return true;
       }
