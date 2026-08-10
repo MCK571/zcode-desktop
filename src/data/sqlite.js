@@ -14,6 +14,10 @@ const MODEL_USAGE_DB = path.join(ZCODE_DIR, 'cli', 'db', 'db.sqlite');
 const LOG_DIR = path.join(ZCODE_DIR, 'cli', 'log');
 
 const LIVE_LOG_TAIL = 400;
+// 会话状态判断（activeSessionIds 等）只关心最近活跃会话，读文件尾部足够。
+// 全文件 readFileSync 在日志涨到几十 MB 后，每 1.5s 轮询会同步阻塞主进程
+// 数百 ms（拖动窗口时消息泵停转 → 周期性卡顿），尾部读是根因修复。
+const STATUS_LOG_TAIL = 2000;
 const ACTIVE_TURN_FRESH_MS = 30 * 60 * 1000; // 30 分钟
 const MS_PER_DAY = 86_400_000;
 
@@ -44,8 +48,24 @@ function readLogLines(tail = 0) {
   const fp = newestLogFile();
   if (!fp) return [];
   try {
-    const lines = fs.readFileSync(fp, 'utf8').split('\n');
-    return tail > 0 ? lines.slice(-tail) : lines;
+    if (tail <= 0) return fs.readFileSync(fp, 'utf8').split('\n');
+    // 只读文件尾部 chunk：seek 到 (size - chunk) 再读，避免整文件解析。
+    // chunk 起点可能切断一行（仅当文件大于 chunk 时），丢弃不完整首行。
+    const MAX_TAIL_BYTES = 512 * 1024;
+    const fd = fs.openSync(fp, 'r');
+    let lines;
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(MAX_TAIL_BYTES, size);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      lines = buf.toString('utf8').split('\n');
+      if (size > len) lines.shift();
+      if (lines[lines.length - 1] === '') lines.pop();
+    } finally {
+      fs.closeSync(fd);
+    }
+    return lines.slice(-tail);
   } catch {
     return [];
   }
@@ -330,7 +350,7 @@ function readLiveActivity() {
 // ---- log 状态信号（任务实时状态覆盖）----
 
 function activeSessionIds() {
-  const lines = readLogLines();
+  const lines = readLogLines(STATUS_LOG_TAIL);
   const lastTurnOpen = {};
   const lastTurnTs = {};
   const nowMs = Date.now();
@@ -359,7 +379,7 @@ function activeSessionIds() {
 }
 
 function sessionModes() {
-  const lines = readLogLines();
+  const lines = readLogLines(STATUS_LOG_TAIL);
   const lastMode = {};
   for (const line of lines) {
     if (!line.includes('session.mode.updated')) continue;
@@ -375,7 +395,7 @@ function sessionModes() {
 }
 
 function sessionThoughtLevels() {
-  const lines = readLogLines();
+  const lines = readLogLines(STATUS_LOG_TAIL);
   const lastLevel = {};
   for (const line of lines) {
     if (!line.includes('session.reasoning_effort.updated')) continue;
@@ -390,11 +410,42 @@ function sessionThoughtLevels() {
   return lastLevel;
 }
 
+// ---- 聚合结果缓存 ----
+// SUM 全表扫描每个 ~20ms，status() 一轮 6+ 个聚合 ≈ 180ms 同步阻塞主进程；
+// 每 1.5s 轮询全跑一遍，拖动窗口时消息泵周期性停转 → 卡顿。completed 行
+// 只在任务完成时新增，15s 缓存对显示无感知（对齐 deepseek/opencode 的
+// cache TTL 模式）。
+const AGG_TTL = 15_000;
+
+function ttlMemo(fn, ttl) {
+  let ts = 0;
+  let val = null;
+  return () => {
+    if (val === null || Date.now() - ts >= ttl) {
+      val = fn();
+      ts = Date.now();
+    }
+    return val;
+  };
+}
+
+const readUsageCached = ttlMemo(readUsage, AGG_TTL);
+const providerMemos = new Map();
+function readProviderUsageCached(pids) {
+  const key = pids.join(',');
+  let memo = providerMemos.get(key);
+  if (!memo) {
+    memo = ttlMemo(() => readProviderUsage(pids), AGG_TTL);
+    providerMemos.set(key, memo);
+  }
+  return memo();
+}
+
 module.exports = {
   readTasks,
   readTaskTokens,
-  readUsage,
-  readProviderUsage,
+  readUsage: readUsageCached,
+  readProviderUsage: readProviderUsageCached,
   readLiveActivity,
   emptyUsage,
 };

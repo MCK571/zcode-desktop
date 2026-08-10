@@ -1429,6 +1429,9 @@
     // 是否已完成首次成功渲染。失败时若已渲染过，保留上次数据不动，避免界面
     // 残留 #initStatus 的"已连接，读取数据…"或被清空。
     let firstRenderDone = false;
+    // 上次渲染的数据稳定签名：数据未变时跳过渲染，避免每 1.5s 重建 DOM
+    // 引发布局/合成停顿（窗口拖动时周期性卡顿的渲染端根源）。
+    let lastSig = '';
     // 当前云端额度 tab：'volc' / 'opencode' / 'deepseek'。默认火山。
     let _provider = 'volc';
 
@@ -1510,6 +1513,17 @@
       refreshTimer = setInterval(refresh, 1500);
     }
 
+    // 轮询数据稳定签名：剔除每次 status() 都会重新生成的字段（s.now、
+    // usage.updatedAt），其余为 DB 内容 / 60s 级后台缓存，未变时签名相同。
+    function refreshSig(s) {
+      const u = s.usage || {};
+      return JSON.stringify([
+        { today: u.today, week: u.week, total: u.total, models: u.models },
+        s.planUsage, s.deepseekUsage, s.deepseekBalance,
+        s.opencodeUsage, s.opencodeGo, s.recentTasks,
+      ]);
+    }
+
     async function refresh() {
       if (!api) return;
       // 串行锁：上一次还没返回就跳过，防止 setInterval 堆积并发 status() 调用。
@@ -1522,6 +1536,11 @@
             setTimeout(() => reject(new Error('status timeout')), STATUS_TIMEOUT_MS)
           ),
         ]);
+        // 数据未变 → 跳过整块渲染（SVG 重建 + 全量 innerHTML），
+        // 消除每 1.5s 的布局风暴。时钟有独立 1s tick，不受影响。
+        const sig = refreshSig(s);
+        if (sig === lastSig) return;
+        lastSig = sig;
         renderUsage(s.usage);
         renderPlanUsage(s.planUsage);
         renderProviderUsage(s.deepseekUsage, s.deepseekBalance, {});
