@@ -204,7 +204,10 @@
 
     .widget>.section {
       position: relative;
-      z-index: 1;
+      /* 不能设 z-index：section 会建堆叠上下文，把内部的浮层（provider 下拉、
+         pm-pop 等）锁死在 z1 里，同级 DOM 序靠后的 tasks-section 会整体盖住它们
+         （面板被任务列表遮盖 + 点击穿透的根因）。z-index 置空后浮层直达
+         .widget 上下文，z1000 压过所有 static 内容。 */
     }
 
     /* ---- header / drag handle ---- */
@@ -616,10 +619,11 @@
       white-space: nowrap;
     }
 
-    /* provider tab 切换：火山 / opencode / DeepSeek */
+    /* provider 切换：单按钮 + 点击下拉面板（供应商增多不再撑爆标题栏）。
+       触发器复用 .sec-tab 胶囊样式；面板仿 .opacity-pop（card2 浮层 + 圆角 + 阴影）。 */
     .sec-tabs {
-      display: flex;
-      gap: 3px;
+      position: relative; /* 下拉面板的定位上下文 */
+      z-index: 1000;      /* 触发器+面板整体置顶，排除页面其他区域堆叠干扰 */
       margin-left: auto;
       flex-shrink: 0;
     }
@@ -634,6 +638,10 @@
       cursor: pointer;
       transition: all .15s;
       font-family: inherit;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
     }
 
     .sec-tab:hover {
@@ -645,6 +653,58 @@
       background: var(--glass-strong);
       color: #fff;
       border-color: var(--border2);
+    }
+
+    .tab-arrow {
+      font-size: 8px;
+      opacity: .65;
+      transition: transform .15s;
+    }
+    .sec-tab.open .tab-arrow {
+      transform: rotate(180deg);
+    }
+
+    /* 下拉面板：absolute 挂触发器下，点击展开，外部点击收起。
+       背景用实色而非 --card2（半透明）：火山 tab 可见时底下 plan-list
+       白字会透上来叠字看不清；其他 provider 底下空白所以没暴露。
+       z-index 1000：压过页面内所有元素（任务卡/resize 手柄等），
+       实测 80 会被任务列表区域的元素盖住。 */
+    .provider-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 104px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 4px;
+      border-radius: 10px;
+      background: rgba(38, 42, 51, 1);
+      border: 1px solid var(--border2);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .provider-pop.open {
+      display: flex;
+    }
+
+    .provider-pop .sec-tab {
+      width: 100%;
+      justify-content: space-between;
+      border-radius: 7px;
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .provider-pop .pp-check {
+      font-size: 10px;
+      opacity: 0;
+    }
+    .provider-pop .sec-tab.active .pp-check {
+      opacity: 1;
     }
 
     /* ---- 模型用量 ---- */
@@ -818,6 +878,9 @@
       align-items: center;
       gap: 7px;
       margin-bottom: 11px;
+      /* .pm-pop（按模型悬浮）的定位上下文：pm-trigger 自身无 position，
+         没有这层 pop 的 absolute 会漂到 .widget 级，挂到任务列表那边（同 .usage-total） */
+      position: relative;
     }
 
     .ds-bal-label {
@@ -1333,9 +1396,13 @@
         <div class="sec-title">云端额度</div>
         <div class="sec-badge" id="planBadge">--</div>
         <div class="sec-tabs" id="providerTabs">
-          <button class="sec-tab active" data-prov="volc">火山</button>
-          <button class="sec-tab" data-prov="opencode">opencode</button>
-          <button class="sec-tab" data-prov="deepseek">DeepSeek</button>
+          <button class="sec-tab active" id="providerTabBtn" type="button"><span id="providerTabName">火山</span><span class="tab-arrow">▾</span></button>
+          <div class="provider-pop" id="providerPop">
+            <button class="sec-tab active" data-prov="volc" type="button">火山<span class="pp-check">✓</span></button>
+            <button class="sec-tab" data-prov="opencode" type="button">opencode<span class="pp-check">✓</span></button>
+            <button class="sec-tab" data-prov="deepseek" type="button">DeepSeek<span class="pp-check">✓</span></button>
+            <button class="sec-tab" data-prov="wuhen" type="button">无痕<span class="pp-check">✓</span></button>
+          </div>
         </div>
       </div>
       <!-- 火山视图 -->
@@ -1393,6 +1460,37 @@
         </div>
         <div class="ds-note" id="dsNote"></div>
       </div>
+      <!-- 无痕中转视图（/v1/usage：余额 + 今日/累计 + 按模型 pop） -->
+      <div id="wuhenBody" style="display:none">
+        <div class="ds-balance">
+          <span class="ds-bal-label">余额</span>
+          <span class="ds-bal-val" id="whBalance">--</span>
+          <span class="pm-trigger" id="whModelsTrigger" style="display:none;margin-left:auto">
+            <span class="pm-icon">▦</span>
+            <span class="pm-pop" id="whModelsPop"></span>
+          </span>
+          <span class="ds-bal-sub" id="whBalSub"></span>
+        </div>
+        <div class="usage-grid">
+          <div class="stat in">
+            <div class="k">今日 Tokens</div>
+            <div class="v"><span class="v-num" id="whTodayTk">0</span><small>tk</small></div>
+          </div>
+          <div class="stat out">
+            <div class="k">今日请求</div>
+            <div class="v"><span class="v-num" id="whTodayReq">0</span><small>次</small></div>
+          </div>
+          <div class="stat">
+            <div class="k">今日花费</div>
+            <div class="v"><span class="v-num" id="whTodayCost">0</span><small>$</small></div>
+          </div>
+          <div class="stat">
+            <div class="k">累计 Tokens</div>
+            <div class="v"><span class="v-num" id="whTotalTk">0</span><small>tk</small></div>
+          </div>
+        </div>
+        <div class="ds-note" id="whNote"></div>
+      </div>
     </div>
 
     <!-- task list -->
@@ -1442,6 +1540,8 @@
       return String(n);
     };
     const fmtFull = (n) => n.toLocaleString('en-US');
+    // ISO(UTC) → 本地 "HH:MM:SS"（与主进程 fmtTs 同款；toISOString 是 UTC，直接切片会少 8 小时）
+    const fmtClock = (iso) => { if (!iso) return ''; const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toTimeString().slice(0, 8) : ''; };
 
     /* ---- SVG 渐变数字（规范 §5） ---- */
     const NS = 'http://www.w3.org/2000/svg';
@@ -1520,7 +1620,7 @@
       return JSON.stringify([
         { today: u.today, week: u.week, total: u.total, models: u.models },
         s.planUsage, s.deepseekUsage, s.deepseekBalance,
-        s.opencodeUsage, s.opencodeGo, s.recentTasks,
+        s.opencodeUsage, s.opencodeGo, s.wuhenUsage, s.recentTasks,
       ]);
     }
 
@@ -1546,6 +1646,7 @@
         renderProviderUsage(s.deepseekUsage, s.deepseekBalance, {});
         renderOpencode(s.opencodeUsage);
         renderOpencodeGo(s.opencodeGo);
+        renderWuhen(s.wuhenUsage);
         renderTasks(s.recentTasks);
         renderClock(s.now);
         firstRenderDone = true;
@@ -1657,7 +1758,7 @@
       if (_provider === 'volc') remeasureView('#planList');
 
       const note = document.getElementById('planNote');
-      note.textContent = p.error ? ('⚠ ' + p.error) : ('更新于 ' + (p.updatedAt || '').slice(11, 19) + ' · 数据来源: 火山方舟 OpenAPI');
+      note.textContent = p.error ? ('⚠ ' + p.error) : ('更新于 ' + fmtClock(p.updatedAt) + ' · 数据来源: 火山方舟 OpenAPI');
     }
 
     function renderProviderUsage(usage, balance, opts) {
@@ -1687,8 +1788,54 @@
 
       const ts = (balance && balance.updatedAt) ? balance.updatedAt : '';
       note.textContent = u.enabled
-        ? ('更新于 ' + ts.slice(11, 19) + ' · token 来源: 本地 model_usage')
+        ? ('更新于 ' + fmtClock(ts) + ' · token 来源: 本地 model_usage')
         : '未配置该 provider（在 ZCode 设置里添加 apiKey）';
+    }
+
+    // 渲染无痕中转 tab（/v1/usage：余额 + 今日/累计 + 按模型 pop）。
+    function renderWuhen(w) {
+      const balSub = document.getElementById('whBalSub');
+      const note = document.getElementById('whNote');
+      const trigger = document.getElementById('whModelsTrigger');
+      const pop = document.getElementById('whModelsPop');
+      if (!w || !w.enabled) {
+        G.whBalance.set('--');
+        balSub.textContent = '';
+        trigger.style.display = 'none';
+        note.textContent = '未配置该 provider（在 ZCode 设置里添加 apiKey）';
+        return;
+      }
+
+      const cur = w.unit === 'CNY' ? '¥' : (w.unit === 'USD' ? '$' : (w.unit ? w.unit + ' ' : '$'));
+      if (w.balance !== '') {
+        G.whBalance.set(cur + w.balance);
+        balSub.textContent = w.isValid ? (w.planName ? w.planName : '') : '不可用';
+      } else {
+        G.whBalance.set('--');
+        balSub.textContent = w.error || '查询中…';
+      }
+
+      const today = w.today || {}, total = w.total || {};
+      G.whTodayTk.set(fmt(today.tokens || 0));
+      G.whTodayReq.set(fmt(today.requests || 0));
+      // 花费用 actual_cost（真实扣费额；cost 是官方原价口径，和余额对不上）
+      G.whTodayCost.set(fmt(today.actualCost || 0));
+      G.whTotalTk.set(fmt(total.tokens || 0));
+
+      // 按模型 pop（model_stats 全量）
+      const models = w.models || [];
+      if (models.length) {
+        pop.innerHTML = models.map(m =>
+          `<div class="pm-row"><span class="pm-name">${escapeHtml(m.model)}</span><span>${fmt(m.tokens)} tk · ${m.requests} 次</span></div>`
+        ).join('');
+        trigger.style.display = '';
+      } else {
+        trigger.style.display = 'none';
+      }
+
+      note.textContent = w.error
+        ? ('⚠ ' + w.error)
+        : ('更新于 ' + fmtClock(w.updatedAt) + ' · 来源: 无痕中转 /v1/usage');
     }
 
     // 渲染 opencode tab（无余额，token 填 opencode 专属元素）。
@@ -1728,28 +1875,52 @@
       if (_provider === 'opencode') remeasureView('#ocGoList');
       note.textContent = go.error
         ? ('⚠ ' + go.error)
-        : ('更新于 ' + (go.updatedAt || '').slice(11, 19) + ' · 来源: opencode dashboard');
+        : ('更新于 ' + fmtClock(go.updatedAt) + ' · 来源: opencode dashboard');
     }
 
-    // 切换云端额度 tab：volc / opencode / deepseek，互斥显隐三块 body。
+    // 供应商显示名（下拉触发器按钮 + 选项）
+    const PROVIDER_LABELS = { volc: '火山', opencode: 'opencode', deepseek: 'DeepSeek', wuhen: '无痕' };
+
+    // 切换云端额度 provider：互斥显隐各 body + 更新下拉触发器文字。
     function switchProvider(prov) {
       _provider = prov;
-      document.querySelectorAll('#providerTabs .sec-tab').forEach(b => {
+      document.querySelectorAll('#providerPop .sec-tab').forEach(b => {
         b.classList.toggle('active', b.dataset.prov === prov);
       });
+      document.getElementById('providerTabName').textContent = PROVIDER_LABELS[prov] || prov;
       document.getElementById('planBody').style.display = (prov === 'volc') ? '' : 'none';
       document.getElementById('opencodeBody').style.display = (prov === 'opencode') ? '' : 'none';
       document.getElementById('deepseekBody').style.display = (prov === 'deepseek') ? '' : 'none';
-      // planBadge 是火山专属概念（套餐档位），其他 tab 下隐藏。
+      document.getElementById('wuhenBody').style.display = (prov === 'wuhen') ? '' : 'none';
+      // planBadge 是火山专属概念（套餐档位），其他 provider 下隐藏。
       document.getElementById('planBadge').style.display = (prov === 'volc') ? '' : 'none';
       // 刚显示的视图里 SVG 数字此前在隐藏容器中只能估算宽度，现在实测修正（坑 #5）
-      const scope = prov === 'volc' ? '#planList' : (prov === 'opencode' ? '#opencodeBody' : '#deepseekBody');
+      const scope = prov === 'volc' ? '#planList'
+        : (prov === 'opencode' ? '#opencodeBody'
+          : (prov === 'deepseek' ? '#deepseekBody' : '#wuhenBody'));
       remeasureView(scope);
+      closeProviderPop();
     }
 
+    // 下拉面板开关（点触发器 toggle，外部点击收起）
+    function closeProviderPop() {
+      document.getElementById('providerPop').classList.remove('open');
+      document.getElementById('providerTabBtn').classList.remove('open');
+    }
+
+    const providerPop = document.getElementById('providerPop');
+    const providerTabBtn = document.getElementById('providerTabBtn');
+    providerTabBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      providerPop.classList.toggle('open');
+      providerTabBtn.classList.toggle('open');
+    });
     document.getElementById('providerTabs').addEventListener('click', (e) => {
-      const btn = e.target.closest('.sec-tab');
-      if (btn && btn.dataset.prov) switchProvider(btn.dataset.prov);
+      const opt = e.target.closest('#providerPop .sec-tab');
+      if (opt && opt.dataset.prov) switchProvider(opt.dataset.prov);
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#providerTabs')) closeProviderPop();
     });
 
     // 重置倒计时：短窗口(会话/5小时)显示"X小时Y分钟后"，周/月显示"X天X小时后"。
@@ -2082,6 +2253,11 @@
       dsTodayOut: mount('#dsTodayOut', 'gnum-md', 'g-out'),
       dsWeek: mount('#dsWeek', 'gnum-md', 'g-base'),
       dsMonth: mount('#dsMonth', 'gnum-md', 'g-base'),
+      whBalance: mount('#whBalance', 'gnum-bal', 'g-base'),
+      whTodayTk: mount('#whTodayTk', 'gnum-md', 'g-in'),
+      whTodayReq: mount('#whTodayReq', 'gnum-md', 'g-out'),
+      whTodayCost: mount('#whTodayCost', 'gnum-md', 'g-warn'),
+      whTotalTk: mount('#whTotalTk', 'gnum-md', 'g-base'),
     };
     // 初始占位（隐藏 tab 里估算宽度，切换时 remeasure 修正）
     numObj.set('0');

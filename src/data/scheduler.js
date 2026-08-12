@@ -7,6 +7,7 @@
 const volc = require('./volc');
 const deepseek = require('./deepseek');
 const opencode = require('./opencode');
+const wuhen = require('./wuhen');
 
 function startRefresher(name, fn, ttlMs) {
   const loop = async () => {
@@ -25,6 +26,7 @@ function startAll() {
   startRefresher('volc', volc.refreshOnce, volc.CACHE_TTL * 1000);
   startRefresher('deepseek', deepseek.refreshOnce, deepseek.CACHE_TTL * 1000);
   startRefresher('opencode-go', opencode.refreshOnce, opencode.CACHE_TTL * 1000);
+  startRefresher('wuhen', wuhen.refreshOnce, wuhen.CACHE_TTL * 1000);
 }
 
 module.exports = { startAll };

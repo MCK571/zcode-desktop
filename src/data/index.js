@@ -15,6 +15,7 @@ const {
 const volc = require('./volc');
 const deepseek = require('./deepseek');
 const opencode = require('./opencode');
+const wuhen = require('./wuhen');
 const { startAll } = require('./scheduler');
 
 // 时间戳 → "HH:MM:SS"
@@ -52,6 +53,7 @@ function createApi() {
         opencodeUsage: opencode.getOpencodeUsage(),
         opencodeGo: opencode.getOpencodeGo(),
         deepseekBalance: deepseek.getDeepseekBalance(),
+        wuhenUsage: wuhen.getWuhenUsage(),
         live: readLiveActivity(),
         now: new Date().toTimeString().slice(0, 8),
       };

@@ -9,7 +9,7 @@ const { readProviderUsage } = require('./sqlite');
 const { providerIdsByBaseurl, providerApiKey } = require('./volc');
 
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
-const CACHE_TTL = 60.0;
+const CACHE_TTL = 15.0;
 
 let cache = { ts: 0, payload: null };
 

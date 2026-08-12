@@ -15,7 +15,7 @@ const HOST = 'open.volcengineapi.com';
 const SERVICE = 'ark';
 const REGION = 'cn-beijing';
 const VERSION = '2024-01-01';
-const CACHE_TTL = 60.0;
+const CACHE_TTL = 15.0;
 const MS_PER_DAY = 86_400_000;
 
 const ZCODE_DIR = path.join(os.homedir(), '.zcode');

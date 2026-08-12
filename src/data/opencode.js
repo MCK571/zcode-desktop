@@ -8,7 +8,7 @@ const https = require('https');
 const { readProviderUsage } = require('./sqlite');
 const { providerIdsByBaseurl } = require('./volc');
 
-const CACHE_TTL = 60.0;
+const CACHE_TTL = 15.0;
 const WORKSPACE_ID = (process.env.OPENCODE_GO_WORKSPACE_ID || '').trim();
 const AUTH_COOKIE = (process.env.OPENCODE_GO_AUTH_COOKIE || '').trim();
 const WINDOW_FIELDS = ['rollingUsage', 'weeklyUsage', 'monthlyUsage'];
