@@ -58,11 +58,11 @@ VOLC_PLAN_START=2026-07-15T23:19:00   # 可选，套餐开通时间（倒推分�
 OPENCODE_GO_WORKSPACE_ID=xxx
 OPENCODE_GO_AUTH_COOKIE=xxx
 
-# DeepSeek：key 复用 .volc.env 中 baseurl 对应的 providerApiKey 配置
-# 无痕中转：同 DeepSeek 机制，按 baseURL 含 api.wuhen-ai.com 的 provider 自动取 key
+# DeepSeek / 无痕中转：key 不在此文件，自动读 ~/.zcode/v2/config.json 的
+# ZCode 模型配置，按 baseURL 含 api.deepseek.com / api.wuhen-ai.com 匹配取 apiKey
 ```
 
-> `.volc.env` 已 gitignore，含火山 AK / DeepSeek key / opencode cookie 等敏感凭证，勿提交。
+> `.volc.env` 已 gitignore，含火山 AK / opencode cookie 等敏感凭证，勿提交。DeepSeek / 无痕中转的 key 在 ZCode 自身配置（`~/.zcode/v2/config.json`），不在本项目管理范围。
 
 ## 数据源
 
