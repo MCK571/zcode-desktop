@@ -38,15 +38,17 @@
 ### 运行/构建/发布命令
 - 开发运行: `npm start`（electron .）
 - 打包: `npm run dist`（electron-builder --win --x64，portable）
-- 发布链路（2.0.3 起的既定流程）:
+- 发布链路（2.0.4 起的既定流程）:
   ```
   bump package.json version
   npm run dist                     # 产物 dist/ZCode Usage Widget <v>.exe
-  cp "dist/ZCode Usage Widget <v>.exe" "ZCode Usage Widget <v>.exe"
-  git add package.json src/ 两个exe
-  git commit -m "fix/build: ..."
+  git add package.json src/ "dist/ZCode Usage Widget <v>.exe"
+  git commit -m "feat/fix: ..."
   git tag v<v> && git push origin main && git push origin v<v>
+  gh release create v<v> --title "ZCode 用量组件 v<v>（...）" --notes "..." "dist/ZCode Usage Widget <v>.exe"
   ```
+  注：根目录 exe 已移出跟踪（57f2629，.gitignore /*.exe），发布产物只留 dist/ 一份；
+  `gh release create` 步骤是 2.0.4 补齐的（2.0.1-2.0.3 均建过 release，只推 tag 不建 release 用户会发现"发行版没有最新版"）
 
 ### 历史决策与已知坑
 - **展开态拖动卡顿根因链**（2.0.3 修复，最重要的坑）: 展开态拖动是系统原生 `app-region: drag`，卡顿源不是 JS 拖拽代码。真因是每 1.5s 轮询 `status()` 时主进程同步执行：① `readLogLines()` 无 tail 参数时**整文件** `readFileSync + split + 逐行 JSON.parse`（日志几十 MB 时阻塞数百 ms）；② `readUsage`/`readProviderUsage` 的 SUM 全表扫描聚合（每个 ~20ms，一轮 6+ 个 ≈ 180ms）。主进程阻塞 → 窗口消息泵停转 → 原生拖动周期冻结。修复：① `readLogLines` 改尾部 chunk 读（seek size-512KB，`STATUS_LOG_TAIL=2000`）；② `readUsage`/`readProviderUsage` 加 15s TTL 缓存（`ttlMemo`，复用 deepseek/opencode 的 `{ts,payload}` 缓存模式）；③ 渲染端 `refreshSig` 稳定签名（剔除每次变化的 `s.now`/`usage.updatedAt`），数据未变跳过 DOM 重建 [来源: 本会话实测诊断]
@@ -59,7 +61,7 @@
 - **滑块填充归一化**（2.0.2）：range min=30 时 `--op-fill` 按 `(v-min)/(max-min)` 计算，否则原点右侧凸出
 - **打包后凭证读取**（2.0.1）：portable 单文件 exe 的 `process.cwd()` 不可靠，用 `PORTABLE_EXECUTABLE_DIR` 兜底
 - **exe 大文件**：78MB 超 GitHub 50MB 推荐线（仅警告仍可推；未来量大考虑 LFS）
-- **遗留脏文件**（未提交，勿误删/误提交）: 根 + `dist/` 的 `ZCode Usage Widget 2.0.1.exe`（已跟踪被改动）、`dist/ZCode Usage Widget 2.0.2.exe`（未跟踪）；发布时 `git add` 只加当版本的两个 exe
+- **遗留脏文件**（已清理，2.0.4 发布时 git 识别为 rename 替换）：根 + `dist/` 的 2.0.1/2.0.2 exe 已不再跟踪，dist 只留当前版本 exe
 - **测试体系薄弱**：无自动化测试/CI，仅有本会话的临时 node 自检脚本（tail 逻辑、ttlMemo 行为、真实库计时冒烟）[待补充]
 
 ---
@@ -88,10 +90,11 @@
 
 ## 代码改动收尾约束（必须遵守）
 - **每次改动完代码并验证通过后，必须主动向用户确认：是否需要提交（git commit）？** 不要自行提交。
+- **提交推送前先检查 README**：每次提交前，先看本次改动是否影响 README.md 描述的功能特性 / 配置 / 数据源 / 界面说明 / 目录结构 / 版本历史 / 技术栈，需要更新则**先改 README 再提交推送**（并入同一 commit 或前置一个 docs commit），不得跳过。
 - 本项目改动需要重新打包才能生效（产物是 `dist/ZCode Usage Widget <版本>.exe`），所以：
   - 用户确认要提交时，进一步确认是否需要先打包（`npm run dist`）。
-  - 通常提交应包含重新打包后的 exe（根 + dist 各一份），即 **打包 -> 提交** 的顺序。
-- 本项目还涉及发布 release：用户确认提交后，进一步确认是否需要发布（打 tag `v<版本>` + `git push origin main` + `git push origin v<版本>`）。发布动作必须由用户明确授权，不要自行执行。
+  - 通常提交应包含重新打包后的 exe（只 `dist/` 一份，根目录 exe 已移出跟踪），即 **打包 -> 提交** 的顺序。
+- 本项目还涉及发布 release：用户确认提交后，进一步确认是否需要发布（打 tag `v<版本>` + `git push origin main` + `git push origin v<版本>` + `gh release create` 带 exe 附件）。发布动作必须由用户明确授权，不要自行执行。
 - 整条链路：改动 -> 验证 -> [确认] 打包 -> [确认] 提交 -> [确认] 发布 release。每一步都要等用户确认再往下走，不要合并确认。
 
 ## Skills 使用要求
