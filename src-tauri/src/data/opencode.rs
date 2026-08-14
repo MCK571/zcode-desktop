@@ -181,22 +181,22 @@ pub async fn refresh_once() {
     };
 
     let label_map: [(&str, &str); 3] = [("rolling", "5小时"), ("weekly", "每周"), ("monthly", "每月")];
-    let buckets: Vec<Value> = parsed
-        .as_object()
-        .map(|obj| {
-            obj.iter()
-                .map(|(key, win)| {
-                    json!({
-                        "key": key,
-                        "label": label_map.iter().find(|(k, _)| *k == key).map(|(_, l)| *l).unwrap_or(key),
-                        "usedPct": win.get("usedPct").cloned().unwrap_or(json!(0)),
-                        "remainingPct": win.get("remainingPct").cloned().unwrap_or(json!(0)),
-                        "resetMs": win.get("resetMs").cloned().unwrap_or(json!(0)),
-                    })
+    // 固定顺序输出（对齐 JS Object.entries 插入序 rolling→weekly→monthly；
+    // serde_json::Map 是 BTreeMap，直接迭代会按字母序 monthly→rolling→weekly 打乱前端显示）
+    let buckets: Vec<Value> = label_map
+        .iter()
+        .filter_map(|(key, label)| {
+            parsed.get(*key).map(|win| {
+                json!({
+                    "key": key,
+                    "label": label,
+                    "usedPct": win.get("usedPct").cloned().unwrap_or(json!(0)),
+                    "remainingPct": win.get("remainingPct").cloned().unwrap_or(json!(0)),
+                    "resetMs": win.get("resetMs").cloned().unwrap_or(json!(0)),
                 })
-                .collect()
+            })
         })
-        .unwrap_or_default();
+        .collect();
 
     guard.set(json!({
         "enabled": true,
