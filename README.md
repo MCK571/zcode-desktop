@@ -119,7 +119,7 @@ docs/widget-preview-v3.jpg   # 界面预览图
 ## 版本历史
 
 - `v2.0.6` DSH 视图升级：精确 token（对齐 GUI billed 口径：输入含缓存读取/写入，usage chunk + message 双源去重）+ 最近会话卡列表（真实 cwd 最后一层文件夹名）+ 分模型用量悬浮 + 会话列表内部滚动 + 顶栏去时钟/标题精简 + bat 启动改为本地 electron.exe（不依赖 npx）
-- `v2.0.6` 补丁：修复 koffi 偶发崩溃（`0xc0000409` 栈破坏 fail-fast 导致进程无声退出）——删启动 DWM 探针 + koffi 升级 3.1.5
+- `v2.0.6` 补丁：修复两处无声退出——① koffi 偶发崩溃（`0xc0000409` 栈破坏 fail-fast）：删启动 DWM 探针 + koffi 升级 3.1.5；② dsh 会话 zstd 解压 OOM（Electron 35 的 `zstdDecompressSync` 输出 Buffer 进老生代后 major GC 不触发，海量会话帧累积数 GB 提交内存导致进程无声退出）：解压循环每 200 帧制造堆压力强制 GC（实测峰值 9.4GB→1.25GB）
 - `v2.0.5` DSH（DeepSeek Harness）会话用量（zstd 日志聚合 + 视图切换框架）+ 任务栏图标修复（删 `setAppUserModelId`，避开旧身份缓存导致的空白占位图标）
 - `v2.0.4` 无痕中转余额/用量查询（`/v1/usage`）+ 供应商下拉选择器（.section 堆叠上下文修复）+ 云端数据刷新 60s→15s
 - `v2.0.3` 展开态拖动卡顿修复（日志尾部读 + 聚合 15s 缓存 + 渲染跳过）

@@ -22,7 +22,7 @@ let cache = { ts: 0, payload: null };
 
 // 逐帧解压 zstd 流（每帧独立 frame，循环找 magic 边界解压拼接）
 function decompressZstd(buf) {
-  let out = '', pos = 0;
+  let out = '', pos = 0, frames = 0;
   while (pos < buf.length) {
     const idx = buf.indexOf(ZSTD_MAGIC, pos);
     if (idx < 0) break;
@@ -34,6 +34,14 @@ function decompressZstd(buf) {
       break; // 尾帧不完整（正在写入）：丢弃
     }
     pos = end;
+    // 坑（2026-08-14 实测）：Electron 35 的 zstdDecompressSync 输出 Buffer 进
+    // V8 老生代，JS 堆压力不足时 major GC 永不触发（external 不计数），大量帧
+    // 的 Buffer 累积到数 GB → 进程 OOM 无声退出（exit -36861，无事件日志）。
+    // 每 200 帧用临时大数组制造堆压力强制 major GC：单文件峰值 1.5GB→390MB。
+    if (++frames % 200 === 0) {
+      const junk = new Array(1 << 22);
+      junk.length = 0;
+    }
   }
   return out;
 }
