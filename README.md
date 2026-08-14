@@ -1,6 +1,6 @@
-# ZCode 用量监控组件（Electron 版）
+# ZCode 用量监控组件（Tauri 版）
 
-基于 Electron 的 ZCode AI 用量监控桌面悬浮组件：无边框置顶悬浮窗，实时展示模型 token 用量、云端套餐额度（火山方舟 / opencode / DeepSeek / 无痕中转）、任务列表与实时活动。真磨砂 Acrylic 玻璃（Win11 原生 Acrylic，Win10 回退 Accent recipe），液态玻璃视觉风格。
+基于 Tauri 2 的 ZCode AI 用量监控桌面悬浮组件：无边框置顶悬浮窗，实时展示模型 token 用量、云端套餐额度（火山方舟 / opencode / DeepSeek / 无痕中转）、任务列表与实时活动。真磨砂 Acrylic 玻璃（DWM WCA_ACCENT_POLICY，与 Electron 版 koffi recipe 同源），液态玻璃视觉风格。exe ~8MB（Electron 版 78MB）。
 
 ![组件预览](docs/widget-preview-v3.jpg)
 
@@ -29,25 +29,27 @@
 
 ## 技术栈
 
-- **框架**：Electron 35（主进程 + preload + contextBridge，`contextIsolation: true`，零 nodeIntegration）
-- **数据层**：Node 原生 `node:sqlite`（`DatabaseSync` 只读）+ `https`，火山方舟 SigV4 签名复用 pywebview 版移植逻辑
-- **原生能力**：`koffi` 调 `dwmapi.dll`（Accent 磨砂模糊 / DWM 圆角去边框），Win11 `setBackgroundMaterial('acrylic')`，Win10 走 `windowsBackdrop.js` Accent recipe
-- **窗口**：frameless + alwaysOnTop + 失焦折叠，前端自实现拖拽与 8 方向 resize（`resizable:false` 窗口 resize 时临时切回）
-- **打包**：electron-builder portable 单文件 exe（约 79MB）
+- **框架**：Tauri 2（Rust 后端 + WebView2 前端），`withGlobalTauri` 全局桥（前端零构建，单文件 index.html 直载）
+- **数据层**：Rust `rusqlite`（bundled，只读）+ `reqwest`（native-tls），火山方舟 SigV4 手写（hmac/sha2），对齐 Electron 版 data/ 直译
+- **原生能力**：tauri 内置 Acrylic 窗口效果（WCA_ACCENT_POLICY）+ 手写 DWM 圆角 / 去边框（windows-sys）；拖拽用 Rust 原生线程高频 `GetCursorPos + SetWindowPos`（~500Hz，零 IPC，`timeBeginPeriod(1)` 提精度）
+- **窗口**：frameless + transparent + alwaysOnTop + 失焦折叠（`onFocusChanged` 延迟 300ms 确认防竞态），前端自实现 8 方向 resize
+- **打包**：tauri-bundler NSIS 单文件安装器（~8MB，currentUser 免 UAC，安装完自动启动）
 
 ## 快速开始
 
 ```bash
-# 开发运行（需 Node 22.5+，node:sqlite 要求）
+# 开发运行（需 Rust toolchain + Node 18+）
 npm install
-npm start          # 或双击 启动组件.bat
+npm run tauri:dev    # 或双击 启动组件.bat
 ```
 
-或直接运行打包产物 `dist/` 下的 `ZCode Usage Widget*.exe`（便携版，解压到任意目录双击即用）。
+或运行构建产物 `src-tauri/target/release/bundle/nsis/` 下的安装器（安装到当前用户目录，桌面/开始菜单启动）。
+
+> 旧版 Electron 实现（v2.0.x）保留在 `src/main.js` / `src/preload.js` / `src/windowsBackdrop.js` / `src/windowsChrome.js` / `src/data/*.js`，与 Tauri 版共用 `src/renderer/index.html`（前端经 `window.zapi` 桥双端共存：Tauri 由 shim 注入，Electron 由 preload 注入）。`npm start` 仍可跑 Electron 版。
 
 ## 配置（.volc.env）
 
-凭证查找顺序：**exe 同目录（portable 用 `PORTABLE_EXECUTABLE_DIR`）> 家目录 > 系统环境变量**。开发模式读项目根目录 `.volc.env`。参考：
+凭证查找顺序：**exe 同目录（打包后）> 当前目录（dev 时是项目根）> 家目录**。参考：
 
 ```bash
 # 火山方舟（云端额度 tab 必填，缺失时自动隐藏）
@@ -79,45 +81,59 @@ OPENCODE_GO_AUTH_COOKIE=xxx
 | DeepSeek 余额 | `api.deepseek.com/user/balance` |
 | 无痕中转余额+用量 | `api.wuhen-ai.com/v1/usage`（余额 / 今日累计 / 按模型，15s 后台刷新） |
 
-网络调用全在后台 scheduler（15s 周期），`status()` 路径零网络、只读缓存，前端 1.5s 轮询（数据未变时按稳定签名跳过 DOM 重建）。
+网络调用全在后台 scheduler（15s 周期），`status()` 路径零网络、只读缓存，前端 1.5s 轮询（数据未变时按稳定签名跳过 DOM 重建）。SQLite 聚合 15s TTL 缓存（对齐 Electron 版 ttlMemo）。
 
 ## 构建打包
 
 ```bash
-npm run dist        # electron-builder --win --x64 → dist/ 便携版 exe
+npm run tauri:build   # tauri build → src-tauri/target/release/bundle/nsis/ 单文件安装器
 ```
+
+**便携版**：`src-tauri/target/release/zcode-usage-widget.exe`（~13MB）是裸 exe，依赖系统 WebView2（Win10/11 自带），**拷到任意目录双击即用**（实测）。`.volc.env` 放 exe 同目录即可读凭证。发布时二选一：便携 exe（免安装）或 NSIS 安装器（3.5MB，开始菜单/桌面快捷方式）。
 
 ## 目录结构
 
 ```
+src-tauri/
+├── Cargo.toml            # 依赖：tauri2 / rusqlite(bundled) / reqwest / hmac+sha2 / zstd / windows-sys
+├── tauri.conf.json       # withGlobalTauri、frontendDist=../src/renderer、NSIS 打包
+├── capabilities/         # IPC 权限（core:default + start-dragging）
+└── src/
+    ├── main.rs           # 入口：单实例锁 + setup（scheduler 启动 + 建窗）
+    ├── window.rs         # 窗口：frameless/transparent/Acrylic 效果 + DWM 圆角去边框
+    ├── commands.rs       # IPC：status/win_move/win_drag_start/win_resize/getPos/opacity/quit/openTask
+    └── data/
+        ├── mod.rs        # status() 聚合 + 15s TTL 缓存（对齐 data/index.js）
+        ├── sqlite.rs     # tasks / model_usage / live activity（rusqlite 只读）
+        ├── logs.rs       # （并入 sqlite.rs）JSONL 尾部读 + 会话信号
+        ├── volc.rs       # 火山 SigV4 + 套餐解析 + .volc.env 加载
+        ├── deepseek.rs   # DeepSeek 用量聚合 + 余额
+        ├── opencode.rs   # opencode 用量 + Go 套餐 dashboard 抓取
+        ├── wuhen.rs      # 无痕中转余额+用量（/v1/usage）
+        ├── dsh.rs        # DSH 会话用量（zstd 逐帧解压 + 精确 usage + 按模型聚合）
+        ├── net.rs        # 共用 HTTP 客户端
+        └── scheduler.rs  # 后台刷新调度（tauri::async_runtime::spawn，15s 周期）
 src/
-├── main.js              # 主进程：窗口 / Acrylic / IPC 桥 / 失焦折叠
-├── preload.js           # contextBridge 暴露 window.zapi（status/getPos/moveWindow/resizeWindow/openTask/setOpacity/onBlur）
-├── windowsBackdrop.js   # Win10 Accent 模糊 fallback（token-monitor 同款）
-├── windowsChrome.js     # DWM 圆角 / 去边框细线
-├── renderer/index.html  # 前端单文件（内联 CSS/JS，液态玻璃 UI + 轮询渲染）
-└── data/
-    ├── index.js         # createApi().status() 聚合入口
-    ├── sqlite.js        # tasks / model_usage / live activity 读取
-    ├── volc.js          # 火山方舟 SigV4 签名 + 套餐解析 + .volc.env 加载
-    ├── deepseek.js      # DeepSeek 用量聚合 + 余额
-    ├── opencode.js      # opencode 用量 + Go 套餐 dashboard 抓取
-    ├── wuhen.js         # 无痕中转余额+用量（/v1/usage）
-    ├── dsh.js           # DSH（DeepSeek Harness）会话用量（zstd 日志解压 + 精确 usage + 按模型聚合）
-    └── scheduler.js     # 后台刷新调度（15s 周期）
+├── renderer/index.html   # 前端单文件（双端共用：Tauri shim / Electron preload 注入 window.zapi）
+├── main.js               # [Electron legacy] 主进程（v2.0.x，保留）
+├── preload.js            # [Electron legacy] contextBridge 桥
+├── windowsBackdrop.js    # [Electron legacy] Accent 模糊
+├── windowsChrome.js      # [Electron legacy] DWM 圆角去边框
+└── data/*.js             # [Electron legacy] JS 数据层（Tauri 版为 Rust 直译）
 docs/widget-preview-v3.jpg   # 界面预览图
 ```
 
 ## 已知坑
 
-- **Acrylic 用 Accent recipe 而非 backgroundMaterial**：Electron `backgroundMaterial` 会带 DWM 1px 白边框且无法消除（`DWMWA_BORDER_COLOR=NONE` 控制不了），改走 `windowsBackdrop.js` Accent 方案
-- **`resizable:false` 窗口 setSize 无效**（Electron 已知限制）：自定义 resize 需先 `setResizable(true)` 再切回；resize 后 DWM 圆角 / 边框可能恢复，需重设
-- **折叠后可能出现 1px 白边**：`ready-to-show` 与 resize 后需重设 `applyWindowsChrome(win, { round: true })`
-- **portable exe 读不到同目录 `.volc.env`**：自解压运行时 cwd 不可靠，已用 `PORTABLE_EXECUTABLE_DIR` 兜底（2.0.1 修复）
-- **失焦折叠走原生 blur 事件**：比 pywebview 版 Deactivate 事件干净，无拖尾
+- **透明窗口系统拖拽内容消失**：WebView2 透明窗口在系统移动循环（SC_MOVE，`startDragging` / `data-tauri-drag-region`）期间暂停合成渲染 → 拖动时内容消失。解决方案：弃用系统拖拽，Rust 原生线程 `GetCursorPos + SetWindowPos` 高频移动（~500Hz，零 IPC）；`timeBeginPeriod(1)` 提升 sleep 精度（默认 15.6ms 粒度只有 ~60Hz，不跟手）
+- **失焦折叠竞态**：tauri `onFocusChanged` 事件异步派发，失焦后快速点击回窗口会先收到 false 再收到 true，立即折叠会把刚聚焦的窗口缩掉（实测"按住 header 拖动时窗口折叠"）。修复：失焦后延迟 300ms 确认，期间重新聚焦则取消；拖动期间（`__dragGuard`）忽略折叠
+- **tauri 无内置 set_opacity**：手写 Win32 `SetLayeredWindowAttributes`（前端当前未调用，接口完整性保留）
+- **tauri-bundler 无 portable target**：只有 msi / nsis（Tauri 2.9.3 确认），NSIS currentUser 单文件安装器为最近体验
+- **后端数据读取走 spawn_blocking**：SQLite 聚合 ~180ms/轮在 tokio 阻塞池执行，不占 UI 线程（Electron 版拖动卡顿根因在 Rust 侧不存在）
 
 ## 版本历史
 
+- `v3.0.0` Tauri 2 重构：exe 78MB→~8MB，内存减半；前端零改动复用（zapi shim 双端共存）；数据层 Rust 直译（对拍验证一致）；原生线程高频拖拽 + 失焦折叠竞态修复（透明窗口 SC_MOVE 渲染暂停 / onFocusChanged 异步竞态两大坑）；NSIS 单文件安装器
 - `v2.0.6` DSH 视图升级：精确 token（对齐 GUI billed 口径：输入含缓存读取/写入，usage chunk + message 双源去重）+ 最近会话卡列表（真实 cwd 最后一层文件夹名）+ 分模型用量悬浮 + 会话列表内部滚动 + 顶栏去时钟/标题精简 + bat 启动改为本地 electron.exe（不依赖 npx）
 - `v2.0.6` 补丁：修复两处无声退出——① koffi 偶发崩溃（`0xc0000409` 栈破坏 fail-fast）：删启动 DWM 探针 + koffi 升级 3.1.5；② dsh 会话 zstd 解压 OOM（Electron 35 的 `zstdDecompressSync` 输出 Buffer 进老生代后 major GC 不触发，海量会话帧累积数 GB 提交内存导致进程无声退出）：解压循环每 200 帧制造堆压力强制 GC（实测峰值 9.4GB→1.25GB）
 - `v2.0.5` DSH（DeepSeek Harness）会话用量（zstd 日志聚合 + 视图切换框架）+ 任务栏图标修复（删 `setAppUserModelId`，避开旧身份缓存导致的空白占位图标）

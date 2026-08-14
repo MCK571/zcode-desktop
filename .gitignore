@@ -5,6 +5,7 @@ dist/*
 build/
 out/
 /*.exe
+src-tauri/target/
 
 # 敏感凭证（含火山 AK/DeepSeek key/opencode cookie）
 .volc.env

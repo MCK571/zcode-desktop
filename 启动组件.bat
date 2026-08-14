@@ -1,15 +1,14 @@
 @echo off
 chcp 65001 >nul
-title ZCode 用量监控组件（Electron 版）
+title ZCode 用量监控组件（Tauri 版）
 cd /d "%~dp0"
-echo 启动 ZCode 用量监控组件（Electron 版）...
-if not exist "%~dp0node_modules\electron\dist\electron.exe" (
-  echo.
-  echo 找不到 electron.exe，请先运行: pnpm install 或 npm install
-  pause >nul
-  exit /b 1
+rem 优先运行已构建的 release exe；无产物时走 tauri dev
+if exist "%~dp0src-tauri\target\release\zcode-usage-widget.exe" (
+  start "" "%~dp0src-tauri\target\release\zcode-usage-widget.exe"
+  exit /b 0
 )
-call "%~dp0node_modules\electron\dist\electron.exe" .
+echo 未找到 release 产物，启动开发模式（tauri dev）...
+call npx tauri dev
 if errorlevel 1 (
   echo.
   echo 启动失败（错误码 %errorlevel%），按任意键关闭...

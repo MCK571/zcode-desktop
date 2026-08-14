@@ -1359,6 +1359,40 @@
       }
     }
   </style>
+
+  <!-- Tauri 版桥：检测 window.__TAURI__（withGlobalTauri 注入），以与 Electron
+       preload 相同的接口注入 window.zapi，前端主体零改动双端共存。
+       Electron 版 window.zapi 由 preload 先注入，此处检测到即不覆盖。 -->
+  <script>
+    (function () {
+      if (!window.__TAURI__ || window.zapi) return;
+      var core = window.__TAURI__.core;
+      var curWin = window.__TAURI__.window.getCurrentWindow();
+      window.zapi = {
+        status: function () { return core.invoke('status'); },
+        quit: function () { return core.invoke('win_quit'); },
+        getPos: function () { return core.invoke('win_get_pos'); },
+        moveWindow: function (x, y) { return core.invoke('win_move', { x: Math.round(x), y: Math.round(y) }); },
+        dragStart: function () { return core.invoke('win_drag_start'); },
+        resizeWindow: function (w, h) { return core.invoke('win_resize', { w: Math.round(w), h: Math.round(h) }); },
+        openTask: function (p) { return core.invoke('open_task', { path: p }); },
+        setOpacity: function (v) { return core.invoke('win_set_opacity', { v: Number(v) }); },
+        // 失焦自动折叠：tauri 的 onFocusChanged 事件异步派发——失焦后快速点击回
+        // 窗口会先收到 false 再收到 true，立即折叠会把刚聚焦的窗口缩掉（实测
+        // 竞态：按住 header 拖动时窗口被迟到的 false 回调折叠成 48x48）。
+        // 修复：延迟 300ms 确认，期间重新聚焦（true）则取消折叠。
+        onBlur: function (cb) {
+          var blurTimer = null;
+          curWin.onFocusChanged(function (e) {
+            if (e.payload) { clearTimeout(blurTimer); return; }
+            clearTimeout(blurTimer);
+            blurTimer = setTimeout(function () { try { cb(); } catch (_) {} }, 300);
+          });
+          return function () {};
+        }
+      };
+    })();
+  </script>
 </head>
 
 <body>
@@ -1377,7 +1411,10 @@
   </svg>
 
   <div class="widget" id="widget">
-    <!-- header (drag handle) -->
+    <!-- header (drag handle)：两态统一 JS 指针拖拽（getPos + moveWindow 逐帧移动）。
+         Tauri 不用系统级 data-tauri-drag-region：WebView2 透明窗口在系统移动循环
+         （SC_MOVE）期间暂停合成渲染 → 拖动时内容消失（实测）；逐帧 setPosition
+         不触发暂停，行为与 Electron 折叠态 JS 拖拽一致。 -->
     <div class="header" id="dragHandle">
       <div class="logo">Z</div>
       <div class="titles">
@@ -2322,34 +2359,70 @@
     (function () {
       if (window.__dragBound) return; window.__dragBound = true;
       var dragging = false, moved = false, ox = 0, oy = 0, wx = 0, wy = 0, ready = false;
+      var jsDrag = false;          // Electron fallback：无 dragStart 桥时用 JS 逐帧 moveWindow
+      var posCache = null;         // getPos 结果缓存：pointerdown 立即就绪，不丢起始帧
+      var pending = null, raf = 0; // rAF 节流：每渲染帧最多一次 moveWindow，防 IPC 积压
       var hdr = document.getElementById('dragHandle');
       if (!hdr) return;
+      function scheduleMove(x, y) {
+        pending = { x: x, y: y };
+        if (raf) return;
+        raf = requestAnimationFrame(function () {
+          raf = 0;
+          if (!pending) return;
+          var m = pending; pending = null;
+          posCache = { x: m.x, y: m.y }; // 同步更新缓存，下次拖拽零延迟
+          window.zapi && window.zapi.moveWindow(m.x, m.y);
+        });
+      }
       hdr.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
         if (e.target.classList.contains('close-btn')) return;
         if (e.target.closest('.collapse-btn')) return;
         if (e.target.closest('.theme-btn')) return;
         if (e.target.closest('.opacity-btn')) return;
+        // 拖拽保护：按住期间忽略失焦折叠（配合 shim 的延迟确认，双保险）
+        window.__dragGuard = true;
         dragging = true; moved = false; ready = false;
         ox = e.screenX; oy = e.screenY;
         if (e.target.setPointerCapture) {
           try { e.target.setPointerCapture(e.pointerId); } catch (_) { /* 某些元素不支持，忽略 */ }
         }
-        window.zapi && window.zapi.getPos().then(function (p) { wx = p.x; wy = p.y; ready = true; });
+        // Tauri：原生高频拖拽线程（Rust 侧 GetCursorPos+SetWindowPos，零 IPC 跟手）
+        // Electron：无 dragStart 桥，走 JS 逐帧 moveWindow（系统 drag region 仍拦截展开态）
+        if (window.zapi && window.zapi.dragStart) {
+          jsDrag = false;
+          window.zapi.dragStart();
+        } else {
+          jsDrag = true;
+          // 缓存立即就绪；getPos 异步返回仅在未就绪时应用（防拖动中旧值覆盖导致位置跳变）
+          if (posCache) { wx = posCache.x; wy = posCache.y; ready = true; }
+          window.zapi && window.zapi.getPos().then(function (p) {
+            posCache = { x: p.x, y: p.y };
+            if (!ready) { wx = p.x; wy = p.y; ready = true; }
+          });
+        }
         e.preventDefault();
       });
       document.addEventListener('pointermove', function (e) {
-        if (!dragging || !ready) return; // getPos 未返回时忽略，防窗口甩向 (0,0)
+        if (!dragging) return;
         var dx = e.screenX - ox, dy = e.screenY - oy;
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-        window.zapi && window.zapi.moveWindow(wx + dx, wy + dy);
+        if (jsDrag) {
+          if (!ready) return; // getPos 未返回时忽略，防窗口甩向 (0,0)
+          scheduleMove(wx + dx, wy + dy);
+        }
       });
       document.addEventListener('pointerup', function (e) {
         dragging = false;
-        // 未拖动（点击）且点在 logo 上 → 切换折叠态
+        // 松手 300ms 后解除拖拽保护（期间失焦折叠仍被忽略）
+        setTimeout(function () { window.__dragGuard = false; }, 300);
+        // 未拖动（点击）且点在 logo 上且处于折叠态 → 展开
+        // （展开态点击 logo 无操作，避免 JS 拖拽接管后误触发折叠）
         if (!moved) {
           var w = document.getElementById('widget');
-          if (w && e.target && e.target.classList && e.target.classList.contains('logo')) {
-            if (window.__toggleExpand) window.__toggleExpand(!w.classList.contains('collapsed'));
+          if (w && w.classList.contains('collapsed') && e.target && e.target.classList && e.target.classList.contains('logo')) {
+            if (window.__toggleExpand) window.__toggleExpand(false);
           }
         }
       });
@@ -2407,9 +2480,12 @@
       if (window.zapi) {
         api = window.zapi;
         setInit('已连接，读取数据…');
-        // Electron 失焦自动折叠（主进程 blur → 前端折叠成图标）
+        // 失焦自动折叠（延迟确认在 shim 内做；拖拽期间忽略，防拖动误折叠）
         if (window.zapi.onBlur) {
-          window.zapi.onBlur(() => { window.__toggleExpand && window.__toggleExpand(true); });
+          window.zapi.onBlur(() => {
+            if (window.__dragGuard) return;
+            window.__toggleExpand && window.__toggleExpand(true);
+          });
         }
         // 恢复记忆的玻璃通透度（CSS 变量，立即可生效）
         applyGlass(_glass);
