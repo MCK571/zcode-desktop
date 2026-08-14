@@ -1,8 +1,12 @@
 'use strict';
 
 // DSH（DeepSeek Harness）用量统计 — 读 ~/.dsh/sessions 的 zstd 压缩会话日志。
-// DSH 会话无 token usage 事件（zcode 有），token 按 ~4 字符/token 估算（标注"估算"）。
-// 15s TTL 缓存（复用 deepseek/opencode 的 {ts,payload} 模式），status() 路径零网络。
+// token 口径对齐 DSH GUI（token-meter/StatsLine）：usage 来自 assistant/chunk 的
+// usage 类型 chunk 与 assistant/message 的 data.usage，同 turn/step 只取最后一份
+// （后到替换，不累加）；输入 = uncachedInput + cacheRead + cacheWrite（billed 口径，
+// GUI 的 billedInputTokens）。会话详情：session/title（标题）、user/message（首条
+// 消息）、request/context（模型）、tool/call（工具名）。
+// 15s TTL 缓存（{ts,payload} 模式），status() 路径零网络零阻塞。
 
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +16,7 @@ const { zstdDecompressSync } = require('node:zlib');
 const SESSIONS_ROOT = path.join(os.homedir(), '.dsh', 'sessions');
 const CACHE_TTL = 15.0;
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]); // zstd frame magic
+const MAX_SESSION_LIST = 10; // 会话卡列表只回最近 N 个，聚合仍全量
 
 let cache = { ts: 0, payload: null };
 
@@ -33,8 +38,30 @@ function decompressZstd(buf) {
   return out;
 }
 
-// 统计单个会话日志：turn/step/模型/工具调用/估算 token
-function statLog(logPath) {
+// 单步 token 桶。input 是 billed 口径（含缓存），cache 单独拆出供展示。
+const ZERO = { input: 0, cache: 0, output: 0, reasoning: 0 };
+
+function addTokens(a, b) {
+  a.input += b.input || 0; a.cache += b.cache || 0;
+  a.output += b.output || 0; a.reasoning += b.reasoning || 0;
+}
+
+// 从 usage 记录取单步 token（输入= billed 口径，对齐 GUI billedInputTokens）
+function tokensFromUsage(u) {
+  if (!u || typeof u !== 'object') return null;
+  const input = u.inputTokens, out = u.outputTokens;
+  if (typeof input !== 'number' && typeof out !== 'number') return null;
+  const cache = (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0);
+  return {
+    input: (typeof input === 'number' ? input : 0) + cache,
+    cache,
+    output: typeof out === 'number' ? out : 0,
+    reasoning: u.reasoningTokens || 0,
+  };
+}
+
+// 统计单个会话：精确 token + 标题/模型/工具/时间
+function statLog(logPath, sid) {
   let text;
   try {
     const buf = fs.readFileSync(logPath);
@@ -43,50 +70,79 @@ function statLog(logPath) {
     return null;
   }
   const s = {
-    turns: 0, steps: 0, toolCalls: 0,
-    models: {}, estTokens: 0, chars: 0, lastTs: 0,
+    id: sid, title: '', firstMsg: '', model: '', cwd: '',
+    turns: 0, steps: 0, toolCalls: 0, tools: {},
+    tokens: { ...ZERO }, createdAt: 0, lastTs: 0,
   };
+  // 同 turn/step 的 usage 只留最后一份（chunk 先行、message 收尾，后到替换不累加）
+  const stepUsage = new Map();
+  // 按模型聚合：request/context 声明当前请求模型，其后 usage 归该模型
+  let currentModel = '';
+  const modelTokens = new Map();
   for (const line of text.split('\n')) {
     let j;
     try { j = JSON.parse(line); } catch (e) { continue; }
     if (!j || typeof j !== 'object') continue;
-    const t = j.type;
-    if (t === 'turn/start' || t === 'turn/end') s.turns++;
+    const t = j.type, d = j.data || {};
+    if (t === 'session') {
+      s.createdAt = Number(j.createdAt || 0);
+      // 真实 cwd（workspace 目录名是有损编码，不可靠；basename 拿最后一层文件夹）
+      if (typeof j.cwd === 'string' && j.cwd) s.cwd = j.cwd;
+    } else if (t === 'turn/start' || t === 'turn/end') s.turns++;
     else if (t === 'step/start' || t === 'step/end') s.steps++;
-    else if (t === 'tool/call') s.toolCalls++;
-    else if (t === 'request/context') {
-      const m = (j.data && (j.data.model || j.data.provider)) || '';
-      if (m) s.models[m] = (s.models[m] || 0) + 1;
-    }
-    // 文本类事件按字符数累计（估算 token 用）：texts 数组（chunk 流）或 text/content 字段
-    if (t === 'assistant/chunk' || t === 'text-chunks' || t === 'reasoning-chunks' || t === 'tool/result') {
-      const d = j.data || {};
-      const texts = d.texts;
-      if (Array.isArray(texts)) {
-        for (const x of texts) if (typeof x === 'string') s.chars += x.length;
-      } else {
-        const txt = d.text || d.content;
-        if (typeof txt === 'string') s.chars += txt.length;
-        else if (typeof txt === 'object' && txt && Array.isArray(txt.content) && txt.content[0] && typeof txt.content[0].text === 'string') {
-          s.chars += txt.content[0].text.length; // tool/result 的 message.content[0].content[0].text
-        }
+    else if (t === 'tool/call') {
+      s.toolCalls++;
+      if (d.name) s.tools[d.name] = (s.tools[d.name] || 0) + 1;
+    } else if (t === 'request/context') {
+      if (d.model || d.provider) {
+        s.model = s.model || (d.model || d.provider);
+        currentModel = (d.provider ? d.provider + '/' : '') + (d.model || '');
       }
+    } else if (t === 'session/title') {
+      if (d.title) s.title = d.title;
+    } else if (t === 'user/message') {
+      const c = d.content;
+      if (!s.firstMsg && Array.isArray(c)) {
+        const txt = c.find(x => x && x.type === 'text' && typeof x.text === 'string');
+        if (txt) s.firstMsg = txt.text;
+      }
+    } else if (t === 'assistant/chunk') {
+      // usage 类型 chunk：流的早期样本（token-meter 同源）
+      if (d.chunk && d.chunk.type === 'usage' && d.chunk.usage) {
+        stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.chunk.usage), model: currentModel });
+      }
+    } else if (t === 'assistant/message') {
+      // 组装消息的最终 usage：覆盖同 step 的 chunk 样本
+      if (d.usage) stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.usage), model: currentModel });
     }
-    const ts = Number(j.time || j.createdAt || 0);
+    const ts = Number(j.time || 0);
     if (ts > s.lastTs) s.lastTs = ts;
   }
-  s.estTokens = Math.round(s.chars / 4); // ponytail: 4字符/token 估算，DSH 无 usage 事件
+  for (const { tk, model } of stepUsage.values()) {
+    if (!tk) continue;
+    addTokens(s.tokens, tk);
+    const key = model || 'unknown';
+    const bucket = modelTokens.get(key) || { ...ZERO };
+    addTokens(bucket, tk);
+    modelTokens.set(key, bucket);
+  }
+  s.modelTokens = Array.from(modelTokens.entries())
+    .map(([model, tokens]) => ({ model, tokens }))
+    .sort((a, b) => b.tokens.input - a.tokens.input);
+  // 标题兜底：无 session/title 时用首条消息截断
+  if (!s.title && s.firstMsg) s.title = s.firstMsg.length > 40 ? s.firstMsg.slice(0, 40) + '…' : s.firstMsg;
+  s.toolList = Object.entries(s.tools).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, calls]) => ({ name, calls }));
   return s;
 }
 
 // 聚合所有 workspace 的会话统计
 function scan() {
   const workspaces = [];
-  let total = { sessions: 0, turns: 0, steps: 0, toolCalls: 0, estTokens: 0 };
-  const modelsAll = {};
+  const sessions = [];
+  let total = { sessions: 0, turns: 0, steps: 0, toolCalls: 0, tokens: { ...ZERO } };
   let latestTs = 0;
   let dirs;
-  try { dirs = fs.readdirSync(SESSIONS_ROOT); } catch (e) { return { workspaces: [], total, models: [], latestTs }; }
+  try { dirs = fs.readdirSync(SESSIONS_ROOT); } catch (e) { return { workspaces: [], sessions, total, latestTs, updatedAt: new Date().toISOString() }; }
 
   for (const wsDir of dirs) {
     const wsPath = path.join(SESSIONS_ROOT, wsDir);
@@ -95,29 +151,50 @@ function scan() {
     if (!st.isDirectory()) continue;
     let sids;
     try { sids = fs.readdirSync(wsPath); } catch (e) { continue; }
-    const w = { name: wsDir.replace(/^--|--$/g, ''), sessions: 0, turns: 0, steps: 0, toolCalls: 0, estTokens: 0, models: {}, latestTs: 0 };
+    const fallbackName = wsDir.replace(/^--|--$/g, '');
+    const w = {
+      name: fallbackName, // 首个会话真实 cwd basename 会覆盖（目录名是有损编码）
+      sessions: 0, turns: 0, steps: 0, toolCalls: 0,
+      tokens: { ...ZERO }, latestTs: 0,
+    };
     for (const sid of sids) {
       const logPath = path.join(wsPath, sid, 'session.jsonl.zstd');
       if (!fs.existsSync(logPath)) continue;
-      const s = statLog(logPath);
+      const s = statLog(logPath, sid);
       if (!s) continue;
-      w.sessions++; w.turns += s.turns; w.steps += s.steps; w.toolCalls += s.toolCalls; w.estTokens += s.estTokens;
-      for (const [m, c] of Object.entries(s.models)) { w.models[m] = (w.models[m] || 0) + c; modelsAll[m] = (modelsAll[m] || 0) + c; }
+      const wsName = s.cwd ? path.basename(s.cwd) : fallbackName;
+      if (w.sessions === 0 && wsName !== fallbackName) w.name = wsName;
+      w.sessions++; w.turns += s.turns; w.steps += s.steps; w.toolCalls += s.toolCalls;
+      addTokens(w.tokens, s.tokens);
       if (s.lastTs > w.latestTs) w.latestTs = s.lastTs;
+      sessions.push({ ...s, ws: wsName });
     }
     if (!w.sessions) continue;
-    // 模型分布转数组（按调用次数降序）
-    w.modelList = Object.entries(w.models).sort((a, b) => b[1] - a[1]).map(([model, calls]) => ({ model, calls }));
     workspaces.push(w);
     total.sessions += w.sessions; total.turns += w.turns; total.steps += w.steps;
-    total.toolCalls += w.toolCalls; total.estTokens += w.estTokens;
+    total.toolCalls += w.toolCalls; addTokens(total.tokens, w.tokens);
     if (w.latestTs > latestTs) latestTs = w.latestTs;
   }
   workspaces.sort((a, b) => b.latestTs - a.latestTs);
+  // 会话卡按最近活动排序，截断到 MAX_SESSION_LIST
+  sessions.sort((a, b) => b.lastTs - a.lastTs);
+  // 全局模型分布（按 billed 输入降序），供大字悬浮 pop
+  const modelMap = new Map();
+  for (const s of sessions) {
+    for (const mt of s.modelTokens || []) {
+      const bucket = modelMap.get(mt.model) || { ...ZERO };
+      addTokens(bucket, mt.tokens);
+      modelMap.set(mt.model, bucket);
+    }
+  }
+  const models = Array.from(modelMap.entries())
+    .map(([model, tokens]) => ({ model, tokens }))
+    .sort((a, b) => b.tokens.input - a.tokens.input);
   return {
     workspaces,
+    sessions: sessions.slice(0, MAX_SESSION_LIST),
     total,
-    models: Object.entries(modelsAll).sort((a, b) => b[1] - a[1]).map(([model, calls]) => ({ model, calls })),
+    models,
     latestTs,
     updatedAt: new Date().toISOString(),
   };

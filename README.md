@@ -7,7 +7,7 @@
 ## 功能特性
 
 - **模型用量**：今日 / 近 7 日 / 累计 token 统计（本地 `model_usage` 持久表，跨 session 不剪枝），今日输入 / 输出分卡片展示，大数字 SVG 渐变金属质感
-- **DSH 用量**：DeepSeek Harness 会话统计（读 `~/.dsh/sessions` zstd 压缩日志，token 按 ~4 字符/token 估算），总会话 / turn / step / 工具调用数、模型分布标签、按 workspace 明细（15s 缓存；界面含 ZCode / DSH 视图切换，切换按钮暂隐藏）
+- **DSH 用量**：DeepSeek Harness 会话统计（读 `~/.dsh/sessions` zstd 压缩日志，**精确 token**，口径对齐 DSH GUI：输入 = 未缓存输入 + 缓存读取 + 缓存写入），顶部 ZCode / DSH 胶囊切换；总输入大字 + 分模型悬浮明细（hover ▦ icon）+ 输入 / 输出 / 推理 / 缓存四格 + 最近会话卡（项目 / 模型 / 相对时间 / token，超高内部滚动，15s 缓存）
 - **云端额度**：火山方舟套餐（`GetCodingPlanUsage` / `GetAFPUsage`）、opencode Go 套餐（dashboard 解析）、DeepSeek 官方余额（`/user/balance`）、无痕中转余额+用量（`/v1/usage`），供应商单按钮+下拉面板切换；5 小时 / 每周 / 每月三窗口进度条 + 重置倒计时
 - **任务列表**：当前运行任务 + 最近任务（含 token 消耗），点击卡片经 `zcode://open-project` 协议打开对应工作区
 - **实时活动**：tail 本地 JSONL 日志，解析工具调用事件流
@@ -16,14 +16,16 @@
 
 ## 界面说明
 
-窄条竖屏悬浮窗（322x840，默认位于屏幕右缘），自上而下四个区块：
+窄条竖屏悬浮窗（322x840，默认位于屏幕右缘），顶部胶囊可切换 ZCode / DSH 两个视图：
 
-| 区块 | 内容 |
-|------|------|
-| 顶栏 | Z 渐变 logo、连接状态（绿点"实时连接"）、HH:MM:SS 时钟、设置入口 |
-| 模型用量 | 今日累计大数字（如 `1.76M tokens`）、今日 / 近 7 日 / 累计统计行、今日输入 / 输出双子卡、请求次数胶囊 |
-| 云端额度 | 火山 / opencode / DeepSeek / 无痕中转 单按钮+下拉面板切换（供应商增多不撑爆标题栏）；火山显示套餐进度条（已用 % + 剩余 % + 重置倒计时），其余显示余额大字 + 2x2 用量网格（今日输入 / 输出、近 7 天 / 近 30 天）；无痕中转另含今日 Tokens / 请求 / 花费（actual_cost）、累计 Tokens 与按模型悬浮明细；底部数据来源与更新时间标注 |
-| 任务列表 | 运行中任务置顶，含状态标签（已完成 / 运行中）、模型标签（如 `deepseek-v4-flash$max`）、相对时间、token 消耗 |
+| 视图 | 区块 | 内容 |
+|------|------|------|
+| ZCode | 顶栏 | Z 渐变 logo、连接状态（绿点"实时连接"）、ZCode / DSH 视图切换胶囊、设置入口 |
+| ZCode | 模型用量 | 今日累计大数字（如 `1.76M tokens`）、今日 / 近 7 日 / 累计统计行、今日输入 / 输出双子卡、请求次数胶囊 |
+| ZCode | 云端额度 | 火山 / opencode / DeepSeek / 无痕中转 单按钮+下拉面板切换（供应商增多不撑爆标题栏）；火山显示套餐进度条（已用 % + 剩余 % + 重置倒计时），其余显示余额大字 + 2x2 用量网格（今日输入 / 输出、近 7 天 / 近 30 天）；无痕中转另含今日 Tokens / 请求 / 花费（actual_cost）、累计 Tokens 与按模型悬浮明细；底部数据来源与更新时间标注 |
+| ZCode | 任务列表 | 运行中任务置顶，含状态标签（已完成 / 运行中）、模型标签（如 `deepseek-v4-flash$max`）、相对时间、token 消耗 |
+| DSH | 用量总览 | 总输入大字（billed 口径，hover ▦ 看分模型明细与占比）、会话 / turn / step / 工具调用摘要、输入 / 输出 / 推理 / 缓存四格 |
+| DSH | 最近会话 | 会话卡列表（项目最后一层文件夹名 / 模型 / 相对时间 / 标题 / turn / 工具数 / billed 输入 token，hover 看未缓存与缓存明细），超高内部滚动 |
 
 ## 技术栈
 
@@ -70,7 +72,7 @@ OPENCODE_GO_AUTH_COOKIE=xxx
 | 数据 | 来源 |
 |------|------|
 | 任务列表 / token 用量 | `~/.zcode/v2/tasks-index.sqlite` + `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表 |
-| DSH 会话用量 | `~/.dsh/sessions`（zstd 压缩日志逐帧解压，token 估算，15s 缓存） |
+| DSH 会话用量 | `~/.dsh/sessions`（zstd 压缩日志逐帧解压，精确 usage，billed 输入含缓存，15s 缓存） |
 | 实时活动 | `~/.zcode/cli/log/zcode-<date>.jsonl`（tail 400 行） |
 | 火山套餐额度 | `open.volcengineapi.com` Ark OpenAPI（SigV4，15s 后台刷新） |
 | opencode 额度 | dashboard 页面解析（SolidJS SSR 水合数据） |
@@ -101,7 +103,7 @@ src/
     ├── deepseek.js      # DeepSeek 用量聚合 + 余额
     ├── opencode.js      # opencode 用量 + Go 套餐 dashboard 抓取
     ├── wuhen.js         # 无痕中转余额+用量（/v1/usage）
-    ├── dsh.js           # DSH（DeepSeek Harness）会话用量（zstd 日志解压聚合）
+    ├── dsh.js           # DSH（DeepSeek Harness）会话用量（zstd 日志解压 + 精确 usage + 按模型聚合）
     └── scheduler.js     # 后台刷新调度（15s 周期）
 docs/widget-preview-v3.jpg   # 界面预览图
 ```
@@ -116,6 +118,7 @@ docs/widget-preview-v3.jpg   # 界面预览图
 
 ## 版本历史
 
+- `v2.0.6` DSH 视图升级：精确 token（对齐 GUI billed 口径：输入含缓存读取/写入，usage chunk + message 双源去重）+ 最近会话卡列表（真实 cwd 最后一层文件夹名）+ 分模型用量悬浮 + 会话列表内部滚动 + 顶栏去时钟/标题精简 + bat 启动改为本地 electron.exe（不依赖 npx）
 - `v2.0.5` DSH（DeepSeek Harness）会话用量（zstd 日志聚合 + 视图切换框架）+ 任务栏图标修复（删 `setAppUserModelId`，避开旧身份缓存导致的空白占位图标）
 - `v2.0.4` 无痕中转余额/用量查询（`/v1/usage`）+ 供应商下拉选择器（.section 堆叠上下文修复）+ 云端数据刷新 60s→15s
 - `v2.0.3` 展开态拖动卡顿修复（日志尾部读 + 聚合 15s 缓存 + 渲染跳过）
