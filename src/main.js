@@ -90,21 +90,6 @@ function createWindow() {
     // 窗口显示后再设一次 DWM 边框/圆角：创建时设置会被显示流程重置
     //（实测折叠图标右侧下方出现 1px 白边框线 = DWM 窗口边框）
     applyWindowsChrome(win, { round: true });
-    // 探针：读 DWM backdrop 状态（3=Transient/Acrylic 生效，2=MainWindow，1=None，0=AUTO）
-    const readBackdrop = () => {
-      try {
-        const koffi = require('koffi');
-        const dwmapi = koffi.load('dwmapi.dll');
-        const getAttr = dwmapi.func('int DwmGetWindowAttribute(uintptr_t hwnd, uint attr, void *pv, uint cb)');
-        const hwndBuf = win.getNativeWindowHandle();
-        const hwnd = hwndBuf.length >= 8 ? hwndBuf.readBigUInt64LE() : BigInt(hwndBuf.readUInt32LE());
-        const buf = Buffer.alloc(4);
-        getAttr(hwnd, 38, buf, 4);
-        return buf.readUInt32LE();
-      } catch {
-        return -1;
-      }
-    };
     if (IS_WIN11) {
       // options 里 backgroundMaterial 实测不生效（backdrop=0），
       // 运行时 setBackgroundMaterial 再试一次
@@ -114,7 +99,6 @@ function createWindow() {
         console.log('[main] setBackgroundMaterial fail:', e.message);
       }
     }
-    console.log('[main] DWM backdrop type:', readBackdrop(), '(3=Acrylic 2=Mica 1=None 0=AUTO)');
     console.log('[main] window ready, backgroundMaterial:', IS_WIN11 ? 'acrylic' : 'accent-fallback');
     win.show();
   });
