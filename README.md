@@ -7,6 +7,7 @@
 ## 功能特性
 
 - **模型用量**：今日 / 近 7 日 / 累计 token 统计（本地 `model_usage` 持久表，跨 session 不剪枝），今日输入 / 输出分卡片展示，大数字 SVG 渐变金属质感
+- **DSH 用量**：DeepSeek Harness 会话统计（读 `~/.dsh/sessions` zstd 压缩日志，token 按 ~4 字符/token 估算），总会话 / turn / step / 工具调用数、模型分布标签、按 workspace 明细（15s 缓存；界面含 ZCode / DSH 视图切换，切换按钮暂隐藏）
 - **云端额度**：火山方舟套餐（`GetCodingPlanUsage` / `GetAFPUsage`）、opencode Go 套餐（dashboard 解析）、DeepSeek 官方余额（`/user/balance`）、无痕中转余额+用量（`/v1/usage`），供应商单按钮+下拉面板切换；5 小时 / 每周 / 每月三窗口进度条 + 重置倒计时
 - **任务列表**：当前运行任务 + 最近任务（含 token 消耗），点击卡片经 `zcode://open-project` 协议打开对应工作区
 - **实时活动**：tail 本地 JSONL 日志，解析工具调用事件流
@@ -69,6 +70,7 @@ OPENCODE_GO_AUTH_COOKIE=xxx
 | 数据 | 来源 |
 |------|------|
 | 任务列表 / token 用量 | `~/.zcode/v2/tasks-index.sqlite` + `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表 |
+| DSH 会话用量 | `~/.dsh/sessions`（zstd 压缩日志逐帧解压，token 估算，15s 缓存） |
 | 实时活动 | `~/.zcode/cli/log/zcode-<date>.jsonl`（tail 400 行） |
 | 火山套餐额度 | `open.volcengineapi.com` Ark OpenAPI（SigV4，15s 后台刷新） |
 | opencode 额度 | dashboard 页面解析（SolidJS SSR 水合数据） |
@@ -99,6 +101,7 @@ src/
     ├── deepseek.js      # DeepSeek 用量聚合 + 余额
     ├── opencode.js      # opencode 用量 + Go 套餐 dashboard 抓取
     ├── wuhen.js         # 无痕中转余额+用量（/v1/usage）
+    ├── dsh.js           # DSH（DeepSeek Harness）会话用量（zstd 日志解压聚合）
     └── scheduler.js     # 后台刷新调度（15s 周期）
 docs/widget-preview-v3.jpg   # 界面预览图
 ```
@@ -113,6 +116,7 @@ docs/widget-preview-v3.jpg   # 界面预览图
 
 ## 版本历史
 
+- `v2.0.5` DSH（DeepSeek Harness）会话用量（zstd 日志聚合 + 视图切换框架）+ 任务栏图标修复（删 `setAppUserModelId`，避开旧身份缓存导致的空白占位图标）
 - `v2.0.4` 无痕中转余额/用量查询（`/v1/usage`）+ 供应商下拉选择器（.section 堆叠上下文修复）+ 云端数据刷新 60s→15s
 - `v2.0.3` 展开态拖动卡顿修复（日志尾部读 + 聚合 15s 缓存 + 渲染跳过）
 - `v2.0.2` 滑块填充按轨道范围归一化 + 单实例锁

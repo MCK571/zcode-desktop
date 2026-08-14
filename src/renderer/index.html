@@ -455,6 +455,7 @@
 
     .widget.collapsed .titles,
     .widget.collapsed .clock,
+    .widget.collapsed .view-tabs,
     .widget.collapsed .collapse-btn,
     .widget.collapsed .theme-btn,
     .widget.collapsed .opacity-btn,
@@ -705,6 +706,110 @@
     }
     .provider-pop .sec-tab.active .pp-check {
       opacity: 1;
+    }
+
+    /* ---- ZCode / DSH 视图切换（header 内胶囊组，复用 .sec-tab 范式） ---- */
+    /* 切换按钮暂时隐藏（用户要求；JS 逻辑保留，需要时放开即可） */
+    .view-tabs {
+      display: none;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 20px;
+      background: var(--glass-soft);
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
+    .view-tabs .sec-tab {
+      border: none;
+      background: transparent;
+      padding: 2px 7px;
+      font-size: 10px;
+    }
+
+    .view-tabs .sec-tab.active {
+      background: var(--glass-strong);
+      color: #fff;
+    }
+
+    /* DSH 视图显隐：class 控制，避免覆盖各 section 的 inline display 状态
+       （planSection 未启用时由 renderPlanUsage 写 inline none，切换视图不能破坏它） */
+    #dshSection {
+      display: none;
+    }
+    .widget.view-dsh #dshSection {
+      display: block;
+    }
+    .widget.view-dsh .zcode-view {
+      display: none !important;
+    }
+
+    /* ---- DSH 用量视图 ---- */
+    .dsh-models {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 11px;
+    }
+
+    .dsh-model-tag {
+      font-size: 10px;
+      color: var(--text2);
+      background: var(--accent2-soft);
+      border: 1px solid rgba(var(--accent2-rgb), 0.18);
+      border-radius: 20px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .dsh-ws-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 11px;
+    }
+
+    .dsh-ws {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    :root[data-theme="light"] .dsh-ws {
+      background: rgba(15, 23, 42, 0.05);
+    }
+
+    .dsh-ws-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
+    .dsh-ws-meta {
+      font-size: 10px;
+      color: var(--text3);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .dsh-ws-tk {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 650;
+      color: var(--accent2);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     /* ---- 模型用量 ---- */
@@ -1315,6 +1420,11 @@
         <h1>ZCode 用量监控</h1>
         <div class="sub"><span class="dot" id="liveDot"></span><span id="connStatus">初始化中…</span></div>
       </div>
+      <!-- ZCode / DSH 视图切换（胶囊组，复用 .sec-tab 范式） -->
+      <div class="view-tabs" id="viewTabs" role="tablist" aria-label="视图切换">
+        <button class="sec-tab active" data-view="zcode" type="button" role="tab" aria-selected="true">ZCode</button>
+        <button class="sec-tab" data-view="dsh" type="button" role="tab" aria-selected="false">DSH</button>
+      </div>
       <div class="clock" id="clock">--:--</div>
       <button class="collapse-btn" id="collapseBtn" title="折叠">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
@@ -1361,7 +1471,7 @@
     <div class="resize-handle rh-sw" data-dir="sw"></div>
 
     <!-- model usage -->
-    <div class="section">
+    <div class="section zcode-view">
       <div class="sec-head">
         <div class="sec-title">模型用量</div>
         <div class="sec-badge" id="reqBadge">0 次请求</div>
@@ -1391,7 +1501,7 @@
     </div>
 
     <!-- cloud quota (火山方舟 CodingPlan / opencode / DeepSeek，tab 切换) -->
-    <div class="section" id="planSection" style="display:none">
+    <div class="section zcode-view" id="planSection" style="display:none">
       <div class="sec-head">
         <div class="sec-title">云端额度</div>
         <div class="sec-badge" id="planBadge">--</div>
@@ -1494,7 +1604,7 @@
     </div>
 
     <!-- task list -->
-    <div class="section tasks-section">
+    <div class="section tasks-section zcode-view">
       <div class="sec-head">
         <div class="sec-title">任务列表</div>
         <div class="sec-badge" id="modelBadge" style="display:none"></div>
@@ -1504,6 +1614,22 @@
           <div class="spinner"></div><br><span id="initMsg">正在连接 ZCode…</span>
         </div>
       </div>
+    </div>
+
+    <!-- DSH 用量视图（DeepSeek Harness 会话统计；顶部胶囊切换到本视图） -->
+    <div class="section" id="dshSection">
+      <div class="sec-head">
+        <div class="sec-title">DSH 用量</div>
+        <div class="sec-badge" id="dshBadge">-- 会话</div>
+      </div>
+      <div class="usage-total">
+        <span class="num" id="dshTotalTk">0</span>
+        <span class="unit">估算 tokens 全部会话</span>
+      </div>
+      <div class="usage-label" id="dshLabel">-- 会话 · -- turn · -- step · -- 工具调用</div>
+      <div class="dsh-models" id="dshModels"></div>
+      <div class="dsh-ws-list" id="dshWsList"></div>
+      <div class="ds-note" id="dshNote"></div>
     </div>
   </div>
 
@@ -1617,10 +1743,13 @@
     // usage.updatedAt），其余为 DB 内容 / 60s 级后台缓存，未变时签名相同。
     function refreshSig(s) {
       const u = s.usage || {};
+      const d = s.dshUsage || {};
       return JSON.stringify([
         { today: u.today, week: u.week, total: u.total, models: u.models },
         s.planUsage, s.deepseekUsage, s.deepseekBalance,
         s.opencodeUsage, s.opencodeGo, s.wuhenUsage, s.recentTasks,
+        // dshUsage 剔除 updatedAt（每次 status() 都重建），其余 15s 缓存内稳定
+        { total: d.total, models: d.models, workspaces: d.workspaces, latestTs: d.latestTs },
       ]);
     }
 
@@ -1648,6 +1777,7 @@
         renderOpencodeGo(s.opencodeGo);
         renderWuhen(s.wuhenUsage);
         renderTasks(s.recentTasks);
+        renderDsh(s.dshUsage);
         renderClock(s.now);
         firstRenderDone = true;
         failCount = 0;
@@ -1923,6 +2053,26 @@
       if (!e.target.closest('#providerTabs')) closeProviderPop();
     });
 
+    /* ---- ZCode / DSH 视图切换（顶部胶囊） ---- */
+    let _view = 'zcode';
+
+    function switchView(view) {
+      _view = view;
+      document.querySelectorAll('#viewTabs .sec-tab').forEach(b => {
+        const on = b.dataset.view === view;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.getElementById('widget').classList.toggle('view-dsh', view === 'dsh');
+      // DSH 视图刚显示：SVG 大字此前在隐藏容器中只能估算宽度，实测修正（坑 #5）
+      if (view === 'dsh') remeasureView('#dshSection');
+    }
+
+    document.getElementById('viewTabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('#viewTabs .sec-tab');
+      if (tab && tab.dataset.view && tab.dataset.view !== _view) switchView(tab.dataset.view);
+    });
+
     // 重置倒计时：短窗口(会话/5小时)显示"X小时Y分钟后"，周/月显示"X天X小时后"。
     function fmtResetCountdown(key, resetMs) {
       if (!resetMs) return '';
@@ -1995,6 +2145,32 @@
     }
 
     function renderClock(now) { document.getElementById('clock').textContent = (now || '').slice(0, 8); }
+
+    // 渲染 DSH 用量视图（主进程读 ~/.dsh/sessions 的 zstd 会话日志聚合）
+    function renderDsh(d) {
+      if (!d) return;
+      const total = d.total || {};
+      G.dshTotalTk.set(fmt(total.estTokens || 0));
+      document.getElementById('dshBadge').textContent = (total.sessions || 0) + ' 会话';
+      document.getElementById('dshLabel').textContent =
+        `${total.sessions || 0} 会话 · ${total.turns || 0} turn · ${total.steps || 0} step · ${total.toolCalls || 0} 工具调用`;
+      // 模型分布标签（全部会话聚合，按调用次数降序）
+      const models = d.models || [];
+      document.getElementById('dshModels').innerHTML = models.map(m =>
+        `<span class="dsh-model-tag" title="${escapeHtml(m.model)}">${escapeHtml(m.model)} ×${m.calls}</span>`
+      ).join('');
+      // 各 workspace 统计
+      document.getElementById('dshWsList').innerHTML = (d.workspaces || []).map(w => `
+    <div class="dsh-ws">
+      <span class="dsh-ws-name" title="${escapeHtml(w.name)}">${escapeHtml(w.name)}</span>
+      <span class="dsh-ws-meta">${w.sessions} 会话 · ${w.steps} step</span>
+      <span class="dsh-ws-tk">${fmt(w.estTokens)} tk</span>
+    </div>`).join('');
+      document.getElementById('dshNote').textContent =
+        (d.workspaces && d.workspaces.length)
+          ? ('更新于 ' + fmtClock(d.updatedAt) + ' · token 按 ~4 字符/token 估算（DSH 日志无 usage 事件）')
+          : '未发现 DSH 会话（~/.dsh/sessions）';
+    }
 
     /* ---- helpers ---- */
     function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -2258,6 +2434,7 @@
       whTodayReq: mount('#whTodayReq', 'gnum-md', 'g-out'),
       whTodayCost: mount('#whTodayCost', 'gnum-md', 'g-warn'),
       whTotalTk: mount('#whTotalTk', 'gnum-md', 'g-base'),
+      dshTotalTk: mount('#dshTotalTk', 'gnum-lg', 'g-base'),
     };
     // 初始占位（隐藏 tab 里估算宽度，切换时 remeasure 修正）
     numObj.set('0');

@@ -23,7 +23,10 @@ const ICON_H = 48;
 const IS_WIN11 = process.platform === 'win32' &&
   parseInt((os.release().split('.')[2] || '0'), 10) >= 22000;
 
-app.setAppUserModelId('Oct1AtJoe.ZCodeUsageWidget');
+// 不设 AppUserModelID（2026-08-14 任务栏图标排查）：'Oct1AtJoe.ZCodeUsageWidget'
+// 在本机遗留图标失效的旧应用身份，任务栏按钮显示空白文档占位图标；
+// 组件无通知/跳转列表需求，删掉后任务栏取窗口/exe 图标（正常）。
+
 
 // 单实例锁：重复双击 bat 不叠窗，聚焦已有窗口
 if (!app.requestSingleInstanceLock()) {
