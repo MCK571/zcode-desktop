@@ -7,7 +7,7 @@
 ## 功能特性
 
 - **模型用量**：今日 / 近 7 日 / 累计 token 统计（本地 `model_usage` 持久表，跨 session 不剪枝），今日输入 / 输出分卡片展示，大数字 SVG 渐变金属质感
-- **DSH 用量**：DeepSeek Harness 会话统计（读 `~/.dsh/sessions` zstd 压缩日志，**精确 token**，口径对齐 DSH GUI：输入 = 未缓存输入 + 缓存读取 + 缓存写入），顶部 ZCode / DSH 胶囊切换；总输入大字 + 分模型悬浮明细（hover ▦ icon）+ 输入 / 输出 / 推理 / 缓存四格 + 最近会话卡（项目 / 模型 / 相对时间 / token，超高内部滚动，15s 缓存）
+- **DSH 用量**：DeepSeek Harness 会话统计（读 `~/.dsh/sessions` zstd 压缩日志，**精确 token**，口径对齐 DSH GUI：输入 = 未缓存输入 + 缓存读取 + 缓存写入），顶部 ZCode / DSH 胶囊切换；今日输入大字 + 累计小字（悬停看完整明细）+ 今日分模型悬浮明细（hover ▦ icon）+ 今日输入 / 输出 / 推理 / 缓存四格 + 最近会话卡（项目 / 模型 / 相对时间 / token，超高内部滚动，15s 缓存）
 - **云端额度**：火山方舟套餐（`GetCodingPlanUsage` / `GetAFPUsage`）、opencode Go 套餐（dashboard 解析）、DeepSeek 官方余额（`/user/balance`）、无痕中转余额+用量（`/v1/usage`），供应商单按钮+下拉面板切换；5 小时 / 每周 / 每月三窗口进度条 + 重置倒计时
 - **任务列表**：当前运行任务 + 最近任务（含 token 消耗），点击卡片经 `zcode://open-project` 协议打开对应工作区
 - **实时活动**：tail 本地 JSONL 日志，解析工具调用事件流
@@ -24,7 +24,7 @@
 | ZCode | 模型用量 | 今日累计大数字（如 `1.76M tokens`）、今日 / 近 7 日 / 累计统计行、今日输入 / 输出双子卡、请求次数胶囊 |
 | ZCode | 云端额度 | 火山 / opencode / DeepSeek / 无痕中转 单按钮+下拉面板切换（供应商增多不撑爆标题栏）；火山显示套餐进度条（已用 % + 剩余 % + 重置倒计时），其余显示余额大字 + 2x2 用量网格（今日输入 / 输出、近 7 天 / 近 30 天）；无痕中转另含今日 Tokens / 请求 / 花费（actual_cost）、累计 Tokens 与按模型悬浮明细；底部数据来源与更新时间标注 |
 | ZCode | 任务列表 | 运行中任务置顶，含状态标签（已完成 / 运行中）、模型标签（如 `deepseek-v4-flash$max`）、相对时间、token 消耗 |
-| DSH | 用量总览 | 总输入大字（billed 口径，hover ▦ 看分模型明细与占比）、会话 / turn / step / 工具调用摘要、输入 / 输出 / 推理 / 缓存四格 |
+| DSH | 用量总览 | 今日输入大字（billed 口径，本地自然日窗口）、累计小字（悬停看完整明细）、今日分模型悬浮（hover ▦ 看明细与占比）、今日输入 / 输出 / 推理 / 缓存四格 |
 | DSH | 最近会话 | 会话卡列表（项目最后一层文件夹名 / 模型 / 相对时间 / 标题 / turn / 工具数 / billed 输入 token，hover 看未缓存与缓存明细），超高内部滚动 |
 
 ## 技术栈
@@ -133,6 +133,7 @@ docs/widget-preview-v3.jpg   # 界面预览图
 
 ## 版本历史
 
+- `v3.0.1` DSH 用量总览改今日口径：今日输入大字（本地自然日窗口）+ 累计小字（悬停看完整明细）+ 今日分模型悬浮 + 今日输入/输出/推理/缓存四格；删会话/turn/step/工具调用摘要行与"X 会话"徽标（Rust dsh.rs 与 Electron legacy dsh.js 同步实现）
 - `v3.0.0` Tauri 2 重构：exe 78MB→~8MB，内存减半；前端零改动复用（zapi shim 双端共存）；数据层 Rust 直译（对拍验证一致）；原生线程高频拖拽 + 失焦折叠竞态修复（透明窗口 SC_MOVE 渲染暂停 / onFocusChanged 异步竞态两大坑）；NSIS 单文件安装器
 - `v2.0.6` DSH 视图升级：精确 token（对齐 GUI billed 口径：输入含缓存读取/写入，usage chunk + message 双源去重）+ 最近会话卡列表（真实 cwd 最后一层文件夹名）+ 分模型用量悬浮 + 会话列表内部滚动 + 顶栏去时钟/标题精简 + bat 启动改为本地 electron.exe（不依赖 npx）
 - `v2.0.6` 补丁：修复两处无声退出——① koffi 偶发崩溃（`0xc0000409` 栈破坏 fail-fast）：删启动 DWM 探针 + koffi 升级 3.1.5；② dsh 会话 zstd 解压 OOM（Electron 35 的 `zstdDecompressSync` 输出 Buffer 进老生代后 major GC 不触发，海量会话帧累积数 GB 提交内存导致进程无声退出）：解压循环每 200 帧制造堆压力强制 GC（实测峰值 9.4GB→1.25GB）

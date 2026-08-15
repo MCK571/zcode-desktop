@@ -89,7 +89,7 @@ fn stat_log(log_path: &std::path::Path, sid: &str) -> Option<Value> {
         "createdAt": 0, "lastTs": 0,
     });
     // 同 turn/step 的 usage 只留最后一份（chunk 先行、message 收尾，后到替换不累加）
-    let mut step_usage: std::collections::HashMap<String, (Tokens, String)> = std::collections::HashMap::new();
+    let mut step_usage: std::collections::HashMap<String, (Tokens, String, i64)> = std::collections::HashMap::new();
     let mut current_model = String::new();
     let mut tools: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut turns = 0i64;
@@ -156,7 +156,7 @@ fn stat_log(log_path: &std::path::Path, sid: &str) -> Option<Value> {
                         if let Some(u) = chunk.get("usage") {
                             if let Some(tk) = tokens_from_usage(u) {
                                 let key = format!("{}:{}", d.get("turn").and_then(|v| v.as_i64()).unwrap_or(0), d.get("step").and_then(|v| v.as_i64()).unwrap_or(0));
-                                step_usage.insert(key, (tk, current_model.clone()));
+                                step_usage.insert(key, (tk, current_model.clone(), j.get("time").and_then(|v| v.as_i64()).unwrap_or(0)));
                             }
                         }
                     }
@@ -167,7 +167,7 @@ fn stat_log(log_path: &std::path::Path, sid: &str) -> Option<Value> {
                 if let Some(u) = d.get("usage") {
                     if let Some(tk) = tokens_from_usage(u) {
                         let key = format!("{}:{}", d.get("turn").and_then(|v| v.as_i64()).unwrap_or(0), d.get("step").and_then(|v| v.as_i64()).unwrap_or(0));
-                        step_usage.insert(key, (tk, current_model.clone()));
+                        step_usage.insert(key, (tk, current_model.clone(), j.get("time").and_then(|v| v.as_i64()).unwrap_or(0)));
                     }
                 }
             }
@@ -186,19 +186,49 @@ fn stat_log(log_path: &std::path::Path, sid: &str) -> Option<Value> {
     s["lastTs"] = json!(last_ts);
 
     let mut total = Tokens::default();
+    let mut total_today = Tokens::default();
     let mut model_tokens: std::collections::HashMap<String, Tokens> = std::collections::HashMap::new();
-    for (tk, model) in step_usage.values() {
+    let mut today_model_tokens: std::collections::HashMap<String, Tokens> = std::collections::HashMap::new();
+    // 今日窗口：本地自然日 0 点（对齐 JS 端 readUsage 口径）
+    let today_start_ms = chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_local_timezone(chrono::Local)
+        .earliest()
+        .unwrap()
+        .timestamp_millis();
+    for (tk, model, ts) in step_usage.values() {
         add_tokens(&mut total, tk);
-        let bucket = model_tokens.entry(if model.is_empty() { "unknown".into() } else { model.clone() }).or_default();
+        let key = if model.is_empty() { "unknown".into() } else { model.clone() };
+        let bucket = model_tokens.entry(key.clone()).or_default();
         add_tokens(bucket, tk);
+        if *ts >= today_start_ms {
+            add_tokens(&mut total_today, tk);
+            let tb = today_model_tokens.entry(key).or_default();
+            add_tokens(tb, tk);
+        }
     }
     s["tokens"] = json!({
         "input": total.input, "cache": total.cache,
         "output": total.output, "reasoning": total.reasoning,
     });
+    s["tokensToday"] = json!({
+        "input": total_today.input, "cache": total_today.cache,
+        "output": total_today.output, "reasoning": total_today.reasoning,
+    });
     let mut model_list: Vec<(String, Tokens)> = model_tokens.into_iter().collect();
     model_list.sort_by(|a, b| b.1.input.cmp(&a.1.input));
     s["modelTokens"] = json!(model_list
+        .into_iter()
+        .map(|(model, tokens)| json!({
+            "model": model,
+            "tokens": { "input": tokens.input, "cache": tokens.cache, "output": tokens.output, "reasoning": tokens.reasoning },
+        }))
+        .collect::<Vec<_>>());
+    let mut today_model_list: Vec<(String, Tokens)> = today_model_tokens.into_iter().collect();
+    today_model_list.sort_by(|a, b| b.1.input.cmp(&a.1.input));
+    s["modelTokensToday"] = json!(today_model_list
         .into_iter()
         .map(|(model, tokens)| json!({
             "model": model,
@@ -230,6 +260,7 @@ fn scan() -> Value {
     let mut sessions: Vec<Value> = Vec::new();
     let mut total = json!({ "sessions": 0, "turns": 0, "steps": 0, "toolCalls": 0 });
     let mut total_tokens = Tokens::default();
+    let mut total_today_tokens = Tokens::default();
     let mut latest_ts: i64 = 0;
     let mut global_models: std::collections::HashMap<String, Tokens> = std::collections::HashMap::new();
 
@@ -276,6 +307,9 @@ fn scan() -> Value {
             w_tool_calls += s.get("toolCalls").and_then(|v| v.as_i64()).unwrap_or(0);
             if let Some(tk) = s.get("tokens") {
                 add_tokens(&mut w_tokens, &tokens_from_value(tk));
+            }
+            if let Some(tk) = s.get("tokensToday") {
+                add_tokens(&mut total_today_tokens, &tokens_from_value(tk));
             }
             let st = s.get("lastTs").and_then(|v| v.as_i64()).unwrap_or(0);
             if st > w_latest_ts {
@@ -325,10 +359,27 @@ fn scan() -> Value {
     }
     let mut models: Vec<(String, Tokens)> = global_models.into_iter().collect();
     models.sort_by(|a, b| b.1.input.cmp(&a.1.input));
+    // 今日分模型分布（供 DSH 视图大字旁 ▦ 悬浮）
+    let mut today_global_models: std::collections::HashMap<String, Tokens> = std::collections::HashMap::new();
+    for s in &sessions {
+        if let Some(mts) = s.get("modelTokensToday").and_then(|v| v.as_array()) {
+            for mt in mts {
+                let model = mt.get("model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                let bucket = today_global_models.entry(model).or_default();
+                add_tokens(bucket, &tokens_from_value(mt.get("tokens").unwrap_or(&json!({}))));
+            }
+        }
+    }
+    let mut today_models: Vec<(String, Tokens)> = today_global_models.into_iter().collect();
+    today_models.sort_by(|a, b| b.1.input.cmp(&a.1.input));
 
     total["tokens"] = json!({
         "input": total_tokens.input, "cache": total_tokens.cache,
         "output": total_tokens.output, "reasoning": total_tokens.reasoning,
+    });
+    total["tokensToday"] = json!({
+        "input": total_today_tokens.input, "cache": total_today_tokens.cache,
+        "output": total_today_tokens.output, "reasoning": total_today_tokens.reasoning,
     });
 
     json!({
@@ -336,6 +387,13 @@ fn scan() -> Value {
         "sessions": sessions.into_iter().take(MAX_SESSION_LIST).collect::<Vec<_>>(),
         "total": total,
         "models": models
+            .into_iter()
+            .map(|(model, tokens)| json!({
+                "model": model,
+                "tokens": { "input": tokens.input, "cache": tokens.cache, "output": tokens.output, "reasoning": tokens.reasoning },
+            }))
+            .collect::<Vec<_>>(),
+        "todayModels": today_models
             .into_iter()
             .map(|(model, tokens)| json!({
                 "model": model,

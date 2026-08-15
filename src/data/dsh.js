@@ -80,7 +80,7 @@ function statLog(logPath, sid) {
   const s = {
     id: sid, title: '', firstMsg: '', model: '', cwd: '',
     turns: 0, steps: 0, toolCalls: 0, tools: {},
-    tokens: { ...ZERO }, createdAt: 0, lastTs: 0,
+    tokens: { ...ZERO }, tokensToday: { ...ZERO }, createdAt: 0, lastTs: 0,
   };
   // 同 turn/step 的 usage 只留最后一份（chunk 先行、message 收尾，后到替换不累加）
   const stepUsage = new Map();
@@ -117,24 +117,36 @@ function statLog(logPath, sid) {
     } else if (t === 'assistant/chunk') {
       // usage 类型 chunk：流的早期样本（token-meter 同源）
       if (d.chunk && d.chunk.type === 'usage' && d.chunk.usage) {
-        stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.chunk.usage), model: currentModel });
+        stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.chunk.usage), model: currentModel, ts: Number(j.time || 0) });
       }
     } else if (t === 'assistant/message') {
       // 组装消息的最终 usage：覆盖同 step 的 chunk 样本
-      if (d.usage) stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.usage), model: currentModel });
+      if (d.usage) stepUsage.set(d.turn + ':' + d.step, { tk: tokensFromUsage(d.usage), model: currentModel, ts: Number(j.time || 0) });
     }
     const ts = Number(j.time || 0);
     if (ts > s.lastTs) s.lastTs = ts;
   }
-  for (const { tk, model } of stepUsage.values()) {
+  // 今日窗口：本地自然日 0 点（与 sqlite readUsage 同口径）
+  const todayStartMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+  const todayModelTokens = new Map();
+  for (const { tk, model, ts } of stepUsage.values()) {
     if (!tk) continue;
     addTokens(s.tokens, tk);
     const key = model || 'unknown';
     const bucket = modelTokens.get(key) || { ...ZERO };
     addTokens(bucket, tk);
     modelTokens.set(key, bucket);
+    if (ts >= todayStartMs) {
+      addTokens(s.tokensToday, tk);
+      const tb = todayModelTokens.get(key) || { ...ZERO };
+      addTokens(tb, tk);
+      todayModelTokens.set(key, tb);
+    }
   }
   s.modelTokens = Array.from(modelTokens.entries())
+    .map(([model, tokens]) => ({ model, tokens }))
+    .sort((a, b) => b.tokens.input - a.tokens.input);
+  s.modelTokensToday = Array.from(todayModelTokens.entries())
     .map(([model, tokens]) => ({ model, tokens }))
     .sort((a, b) => b.tokens.input - a.tokens.input);
   // 标题兜底：无 session/title 时用首条消息截断
@@ -147,7 +159,7 @@ function statLog(logPath, sid) {
 function scan() {
   const workspaces = [];
   const sessions = [];
-  let total = { sessions: 0, turns: 0, steps: 0, toolCalls: 0, tokens: { ...ZERO } };
+  let total = { sessions: 0, turns: 0, steps: 0, toolCalls: 0, tokens: { ...ZERO }, tokensToday: { ...ZERO } };
   let latestTs = 0;
   let dirs;
   try { dirs = fs.readdirSync(SESSIONS_ROOT); } catch (e) { return { workspaces: [], sessions, total, latestTs, updatedAt: new Date().toISOString() }; }
@@ -163,7 +175,7 @@ function scan() {
     const w = {
       name: fallbackName, // 首个会话真实 cwd basename 会覆盖（目录名是有损编码）
       sessions: 0, turns: 0, steps: 0, toolCalls: 0,
-      tokens: { ...ZERO }, latestTs: 0,
+      tokens: { ...ZERO }, tokensToday: { ...ZERO }, latestTs: 0,
     };
     for (const sid of sids) {
       const logPath = path.join(wsPath, sid, 'session.jsonl.zstd');
@@ -174,6 +186,7 @@ function scan() {
       if (w.sessions === 0 && wsName !== fallbackName) w.name = wsName;
       w.sessions++; w.turns += s.turns; w.steps += s.steps; w.toolCalls += s.toolCalls;
       addTokens(w.tokens, s.tokens);
+      addTokens(w.tokensToday, s.tokensToday);
       if (s.lastTs > w.latestTs) w.latestTs = s.lastTs;
       sessions.push({ ...s, ws: wsName });
     }
@@ -181,6 +194,7 @@ function scan() {
     workspaces.push(w);
     total.sessions += w.sessions; total.turns += w.turns; total.steps += w.steps;
     total.toolCalls += w.toolCalls; addTokens(total.tokens, w.tokens);
+    addTokens(total.tokensToday, w.tokensToday);
     if (w.latestTs > latestTs) latestTs = w.latestTs;
   }
   workspaces.sort((a, b) => b.latestTs - a.latestTs);
@@ -198,11 +212,24 @@ function scan() {
   const models = Array.from(modelMap.entries())
     .map(([model, tokens]) => ({ model, tokens }))
     .sort((a, b) => b.tokens.input - a.tokens.input);
+  // 今日分模型分布（供 DSH 视图大字旁 ▦ 悬浮）
+  const todayModelMap = new Map();
+  for (const s of sessions) {
+    for (const mt of s.modelTokensToday || []) {
+      const bucket = todayModelMap.get(mt.model) || { ...ZERO };
+      addTokens(bucket, mt.tokens);
+      todayModelMap.set(mt.model, bucket);
+    }
+  }
+  const todayModels = Array.from(todayModelMap.entries())
+    .map(([model, tokens]) => ({ model, tokens }))
+    .sort((a, b) => b.tokens.input - a.tokens.input);
   return {
     workspaces,
     sessions: sessions.slice(0, MAX_SESSION_LIST),
     total,
     models,
+    todayModels,
     latestTs,
     updatedAt: new Date().toISOString(),
   };

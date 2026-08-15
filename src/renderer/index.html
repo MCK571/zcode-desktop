@@ -1620,33 +1620,32 @@
     <div class="section dsh-section" id="dshSection">
       <div class="sec-head">
         <div class="sec-title">DSH 用量</div>
-        <div class="sec-badge" id="dshBadge">-- 会话</div>
       </div>
       <div class="usage-total">
         <span class="num" id="dshTotalTk">0</span>
-        <span class="unit">输入 tokens 全部会话</span>
-        <!-- 分模型用量悬浮（复用 pm-trigger/pop 范式，与今日累计按模型同款） -->
+        <span class="unit">tokens 今日输入</span>
+        <!-- 分模型用量悬浮（复用 pm-trigger/pop 范式，今日分模型分布） -->
         <span class="pm-trigger um-trigger" id="dshModelsTrigger" style="display:none">
           <span class="pm-icon">▦</span>
           <span class="pm-pop" id="dshModelsPop"></span>
         </span>
       </div>
-      <div class="usage-label" id="dshLabel">-- 会话 · -- turn · -- step · -- 工具调用</div>
+      <div class="usage-label" id="dshLabel">累计 0 tokens</div>
       <div class="usage-grid">
         <div class="stat in">
-          <div class="k">输入 Input</div>
+          <div class="k">今日输入 Input</div>
           <div class="v"><span class="v-num" id="dshIn">0</span><small>tk</small></div>
         </div>
         <div class="stat out">
-          <div class="k">输出 Output</div>
+          <div class="k">今日输出 Output</div>
           <div class="v"><span class="v-num" id="dshOut">0</span><small>tk</small></div>
         </div>
         <div class="stat">
-          <div class="k">推理 Reasoning</div>
+          <div class="k">今日推理 Reasoning</div>
           <div class="v"><span class="v-num" id="dshReason">0</span><small>tk</small></div>
         </div>
         <div class="stat">
-          <div class="k">缓存 Cache</div>
+          <div class="k">今日缓存 Cache</div>
           <div class="v"><span class="v-num" id="dshCache">0</span><small>tk</small></div>
         </div>
       </div>
@@ -2174,20 +2173,22 @@
       if (!d) return;
       const total = d.total || {};
       const tk = total.tokens || {};
-      // 大字：GUI 同款 billed 输入（含缓存），与 GUI 每个任务下的"输入"数字一致
-      G.dshTotalTk.set(fmt(tk.input || 0));
-      document.getElementById('dshBadge').textContent = (total.sessions || 0) + ' 会话';
-      document.getElementById('dshLabel').textContent =
-        `${total.sessions || 0} 会话 · ${total.turns || 0} turn · ${total.steps || 0} step · ${total.toolCalls || 0} 工具调用`;
-      G.dshIn.set(fmt(tk.input || 0));
-      G.dshOut.set(fmt(tk.output || 0));
-      G.dshReason.set(fmt(tk.reasoning || 0));
-      G.dshCache.set(fmt(tk.cache || 0));
+      const tkT = total.tokensToday || {};
+      // 大字：今日 billed 输入（含缓存），与 GUI 每个任务下的"输入"数字一致
+      G.dshTotalTk.set(fmt(tkT.input || 0));
+      // 小字：全部会话累计（同口径），悬停看完整明细
+      const label = document.getElementById('dshLabel');
+      label.textContent = '累计 ' + fmt(tk.input || 0) + ' tokens';
+      label.title = `累计输入 ${fmtFull(tk.input || 0)}（未缓存 ${fmtFull(Math.max(0, (tk.input || 0) - (tk.cache || 0)))} / 缓存 ${fmtFull(tk.cache || 0)}） / 输出 ${fmtFull(tk.output || 0)} / 推理 ${fmtFull(tk.reasoning || 0)}`;
+      G.dshIn.set(fmt(tkT.input || 0));
+      G.dshOut.set(fmt(tkT.output || 0));
+      G.dshReason.set(fmt(tkT.reasoning || 0));
+      G.dshCache.set(fmt(tkT.cache || 0));
 
-      // 大字旁分模型悬浮（复用 pm-trigger/pop 范式，与今日累计按模型同款）
+      // 大字旁分模型悬浮（今日分布，复用 pm-trigger/pop 范式；滤掉 0 token 空记录）
       const dshTrigger = document.getElementById('dshModelsTrigger');
       const dshPop = document.getElementById('dshModelsPop');
-      const models = d.models || [];
+      const models = (d.todayModels || []).filter(m => (m.tokens.input || 0) > 0);
       if (models.length) {
         const totalIn = models.reduce((s2, m) => s2 + (m.tokens.input || 0), 0) || 0;
         dshPop.innerHTML = models.map(m => {
