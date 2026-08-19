@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::data::{deepseek, opencode, volc, wuhen};
+use crate::data::{deepseek, opencode, scnet, volc, wuhen};
 
 pub fn start_all(_app: AppHandle) {
     let ttl = Duration::from_secs(volc::CACHE_TTL);
@@ -34,6 +34,13 @@ pub fn start_all(_app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             wuhen::refresh_once().await;
+            tokio::time::sleep(ttl).await;
+        }
+    });
+    let ttl = Duration::from_secs(scnet::CACHE_TTL);
+    tauri::async_runtime::spawn(async move {
+        loop {
+            scnet::refresh_once().await;
             tokio::time::sleep(ttl).await;
         }
     });

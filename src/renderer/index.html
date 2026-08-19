@@ -1512,6 +1512,7 @@
             <button class="sec-tab" data-prov="opencode" type="button">opencode<span class="pp-check">✓</span></button>
             <button class="sec-tab" data-prov="deepseek" type="button">DeepSeek<span class="pp-check">✓</span></button>
             <button class="sec-tab" data-prov="wuhen" type="button">无痕<span class="pp-check">✓</span></button>
+            <button class="sec-tab" data-prov="scnet" type="button">scent<span class="pp-check">✓</span></button>
           </div>
         </div>
       </div>
@@ -1600,6 +1601,16 @@
           </div>
         </div>
         <div class="ds-note" id="whNote"></div>
+      </div>
+      <!-- SCNet scent 视图（Token Plan 套餐额度，控制台 cookie 抓取） -->
+      <div id="scnetBody" style="display:none">
+        <div class="ds-balance">
+          <span class="ds-bal-label">套餐</span>
+          <span class="ds-bal-val" id="snPlan">--</span>
+          <span class="ds-bal-sub" id="snSub"></span>
+        </div>
+        <div id="snList" class="plan-list" style="margin-bottom:8px"></div>
+        <div class="ds-note" id="snNote"></div>
       </div>
     </div>
 
@@ -1771,7 +1782,7 @@
       return JSON.stringify([
         { today: u.today, week: u.week, total: u.total, models: u.models },
         s.planUsage, s.deepseekUsage, s.deepseekBalance,
-        s.opencodeUsage, s.opencodeGo, s.wuhenUsage, s.recentTasks,
+        s.opencodeUsage, s.opencodeGo, s.wuhenUsage, s.scnetUsage, s.recentTasks,
         // dshUsage 剔除 updatedAt（每次 status() 都重建），其余 15s 缓存内稳定
         { total: d.total, sessions: d.sessions, models: d.models, latestTs: d.latestTs },
       ]);
@@ -1800,6 +1811,7 @@
         renderOpencode(s.opencodeUsage);
         renderOpencodeGo(s.opencodeGo);
         renderWuhen(s.wuhenUsage);
+        renderScnet(s.scnetUsage);
         renderTasks(s.recentTasks);
         renderDsh(s.dshUsage);
         firstRenderDone = true;
@@ -1991,6 +2003,41 @@
         : ('更新于 ' + fmtClock(w.updatedAt) + ' · 来源: 无痕中转 /v1/usage');
     }
 
+    // 渲染 SCNet scent tab（Token Plan 套餐额度：进度条 + 生效期，控制台 cookie 抓取）。
+    function renderScnet(s) {
+      const sub = document.getElementById('snSub');
+      const list = document.getElementById('snList');
+      const note = document.getElementById('snNote');
+      if (!s || !s.enabled) {
+        // snPlan 已被 mount 替换为 SVG 渐变数字，须走 G.snPlan.set（对齐 G.whBalance 用法）
+        G.snPlan.set('--');
+        sub.textContent = '';
+        list.style.display = 'none';
+        note.textContent = '未配置 scent 凭证（.volc.env 设 SCNET_AUTH_COOKIE）';
+        return;
+      }
+      list.style.display = '';
+      G.snPlan.set(s.planName || '--');
+      sub.textContent = s.status === 'enable' ? '生效中' : (s.status || '');
+      const used = s.usedAmount || 0, total = s.totalAmount || 0;
+      const pct = Math.min(100, s.usedPct || 0);
+      const cls = pct >= 90 ? 'crit' : (pct >= 70 ? 'warn' : 'ok');
+      const unit = s.unit || 'CREDITS';
+      list.innerHTML = `<div class="plan-bucket">
+    <div class="plan-bucket-head">
+      <span class="pb-left"><span class="pb-name">本月额度</span></span>
+      <span class="pb-val"><span class="pb-num">${fmtFull(used)}</span><small> / ${fmtFull(total)} ${unit}</small></span>
+    </div>
+    <div class="plan-bar"><div class="plan-bar-fill ${cls}" style="width:${pct}%"></div></div>
+    <div class="plan-bucket-foot"><span>剩余 ${fmtFull(Math.max(0, total - used))} (${(100 - pct).toFixed(1)}%)</span><span>${s.totalDays || 0} 天</span></div>
+  </div>`;
+      upgradePct('#snList');
+      if (_provider === 'scnet') remeasureView('#snList');
+      note.textContent = s.error
+        ? ('⚠ ' + s.error)
+        : ('更新于 ' + fmtClock(s.updatedAt) + ' · 来源: SCNet Token Plan');
+    }
+
     // 渲染 opencode tab（无余额，token 填 opencode 专属元素）。
     function renderOpencode(usage) {
       const u = usage || {};
@@ -2032,7 +2079,7 @@
     }
 
     // 供应商显示名（下拉触发器按钮 + 选项）
-    const PROVIDER_LABELS = { volc: '火山', opencode: 'opencode', deepseek: 'DeepSeek', wuhen: '无痕' };
+    const PROVIDER_LABELS = { volc: '火山', opencode: 'opencode', deepseek: 'DeepSeek', wuhen: '无痕', scnet: 'scent' };
 
     // 切换云端额度 provider：互斥显隐各 body + 更新下拉触发器文字。
     function switchProvider(prov) {
@@ -2045,12 +2092,14 @@
       document.getElementById('opencodeBody').style.display = (prov === 'opencode') ? '' : 'none';
       document.getElementById('deepseekBody').style.display = (prov === 'deepseek') ? '' : 'none';
       document.getElementById('wuhenBody').style.display = (prov === 'wuhen') ? '' : 'none';
+      document.getElementById('scnetBody').style.display = (prov === 'scnet') ? '' : 'none';
       // planBadge 是火山专属概念（套餐档位），其他 provider 下隐藏。
       document.getElementById('planBadge').style.display = (prov === 'volc') ? '' : 'none';
       // 刚显示的视图里 SVG 数字此前在隐藏容器中只能估算宽度，现在实测修正（坑 #5）
       const scope = prov === 'volc' ? '#planList'
         : (prov === 'opencode' ? '#opencodeBody'
-          : (prov === 'deepseek' ? '#deepseekBody' : '#wuhenBody'));
+          : (prov === 'deepseek' ? '#deepseekBody'
+            : (prov === 'wuhen' ? '#wuhenBody' : '#scnetBody')));
       remeasureView(scope);
       closeProviderPop();
     }
@@ -2526,6 +2575,7 @@
       whTodayReq: mount('#whTodayReq', 'gnum-md', 'g-out'),
       whTodayCost: mount('#whTodayCost', 'gnum-md', 'g-warn'),
       whTotalTk: mount('#whTotalTk', 'gnum-md', 'g-base'),
+      snPlan: mount('#snPlan', 'gnum-bal', 'g-base'),
       dshTotalTk: mount('#dshTotalTk', 'gnum-lg', 'g-base'),
       dshIn: mount('#dshIn', 'gnum-md', 'g-in'),
       dshOut: mount('#dshOut', 'gnum-md', 'g-out'),

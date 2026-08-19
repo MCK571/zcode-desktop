@@ -1,16 +1,15 @@
 @echo off
-chcp 65001 >nul
-title ZCode 用量监控组件（Tauri 版）
+title ZCode Usage Widget (Tauri)
 cd /d "%~dp0"
-rem 优先运行已构建的 release exe；无产物时走 tauri dev
+rem prefer built release exe; fallback to tauri dev
 if exist "%~dp0src-tauri\target\release\zcode-usage-widget.exe" (
   start "" "%~dp0src-tauri\target\release\zcode-usage-widget.exe"
   exit /b 0
 )
-echo 未找到 release 产物，启动开发模式（tauri dev）...
+echo release exe not found, starting dev mode (tauri dev)...
 call npx tauri dev
 if errorlevel 1 (
   echo.
-  echo 启动失败（错误码 %errorlevel%），按任意键关闭...
+  echo launch failed (errorlevel %errorlevel%), press any key to close...
   pause >nul
 )

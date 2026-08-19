@@ -20,7 +20,7 @@ fn main() {
             }
         }))
         .setup(|app| {
-            // 后台刷新调度（火山/DeepSeek/opencode/wuhen，60s 周期，首次立即执行）
+            // 后台刷新调度（火山/DeepSeek/opencode/wuhen/scnet，60s 周期，首次立即执行）
             data::scheduler::start_all(app.handle().clone());
             window::create_main(app.handle())?;
             Ok(())

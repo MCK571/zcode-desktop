@@ -7,6 +7,7 @@ pub mod deepseek;
 pub mod dsh;
 pub mod net;
 pub mod opencode;
+pub mod scnet;
 pub mod scheduler;
 pub mod sqlite;
 pub mod volc;
@@ -94,6 +95,7 @@ pub fn status() -> Value {
         "opencodeGo": opencode::get_opencode_go(),
         "deepseekBalance": deepseek::get_deepseek_balance(),
         "wuhenUsage": wuhen::get_wuhen_usage(),
+        "scnetUsage": scnet::get_scnet_usage(),
         "dshUsage": dsh::get_dsh_usage(),
         "live": sqlite::read_live_activity(),
         "now": chrono::Local::now().format("%H:%M:%S").to_string(),

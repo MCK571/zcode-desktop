@@ -87,6 +87,11 @@ fn creds() -> &'static Creds {
     })
 }
 
+// 触发 .volc.env 加载（供其他凭证走 env 的模块用，如 scnet 的 SCNET_AUTH_COOKIE）
+pub fn ensure_env_loaded() {
+    let _ = creds();
+}
+
 // ---- SigV4 签名 ----
 
 fn sha256_hex(data: &[u8]) -> String {
