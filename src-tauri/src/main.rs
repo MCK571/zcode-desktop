@@ -32,6 +32,7 @@ fn main() {
             commands::win_resize,
             commands::win_get_pos,
             commands::win_set_opacity,
+            commands::win_pin_top,
             commands::win_quit,
             commands::open_task,
         ])

@@ -96,6 +96,21 @@ pub fn win_resize(window: WebviewWindow, w: f64, h: f64) {
 }
 
 #[tauri::command]
+pub fn win_pin_top(window: WebviewWindow) {
+    // 折叠态强化置顶：SetWindowPos(HWND_TOPMOST) 把窗口重新插到 topmost 链顶，
+    // 压过同链其它置顶窗口（tauri always_on_top 只保证在普通窗口之上，其它
+    // 置顶窗口激活后仍会盖住本窗）。前端折叠态每 2s 调一次 → 始终最顶层。
+    // 全屏独占窗口（游戏/全屏视频）绕过 DWM 合成，压不过——物理限制。
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE,
+    };
+    unsafe {
+        let hwnd = window.hwnd().unwrap_or_default().0;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
+#[tauri::command]
 pub fn win_set_opacity(window: WebviewWindow, v: f64) {
     // tauri 2 无内置 set_opacity，手写 Win32 layered window alpha（对齐 Electron
     // win.setOpacity）。注意 WS_EX_LAYERED 与 DWM 圆角可能不兼容（已知坑）；

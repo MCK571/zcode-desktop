@@ -1377,6 +1377,7 @@
         resizeWindow: function (w, h) { return core.invoke('win_resize', { w: Math.round(w), h: Math.round(h) }); },
         openTask: function (p) { return core.invoke('open_task', { path: p }); },
         setOpacity: function (v) { return core.invoke('win_set_opacity', { v: Number(v) }); },
+        pinTop: function () { return core.invoke('win_pin_top'); },
         // 失焦自动折叠：tauri 的 onFocusChanged 事件异步派发——失焦后快速点击回
         // 窗口会先收到 false 再收到 true，立即折叠会把刚聚焦的窗口缩掉（实测
         // 竞态：按住 header 拖动时窗口被迟到的 false 回调折叠成 48x48）。
@@ -2378,6 +2379,21 @@
           if (p && typeof p.w === 'number' && typeof p.h === 'number') { _fullW = p.w; _fullH = p.h; }
           if (p && typeof p.x === 'number' && typeof p.y === 'number') { _fullX = p.x; _fullY = p.y; }
         } catch (e) { /* bridge not ready; fall back to defaults */ }
+      }
+
+      // 折叠态强化置顶：pinTop 把窗口插到 topmost 链顶（压过其它置顶窗口）。
+      // 折叠态每 2s 刷新一次 → 被其它置顶窗口抢位后自动弹回，保证"始终最顶层"；
+      // 展开态停表（保持 always_on_top 现状，不主动 pin）。
+      if (collapsed) {
+        if (apiObj && apiObj.pinTop) { try { apiObj.pinTop(); } catch (_) {} }
+        if (!window.__pinTimer) {
+          window.__pinTimer = setInterval(function () {
+            if (window.zapi && window.zapi.pinTop) window.zapi.pinTop();
+          }, 2000);
+        }
+      } else if (window.__pinTimer) {
+        clearInterval(window.__pinTimer);
+        window.__pinTimer = null;
       }
 
       document.getElementById('widget').classList.toggle('collapsed', collapsed);

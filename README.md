@@ -12,7 +12,7 @@
 - **任务列表**：当前运行任务 + 最近任务（含 token 消耗），点击卡片经 `zcode://open-project` 协议打开对应工作区
 - **实时活动**：tail 本地 JSONL 日志，解析工具调用事件流
 - **液态玻璃 UI**：深 / 浅双主题令牌，毛玻璃模糊（`blur(32px) saturate(115%)`）+ 天光描边，失焦自动折叠为小图标
-- **置顶悬浮**：`alwaysOnTop` 无边框窗口，8 方向自定义 resize，最小 48x48
+- **置顶悬浮**：`alwaysOnTop` 无边框窗口，8 方向自定义 resize，最小 48x48；折叠态强化置顶（`SetWindowPos(HWND_TOPMOST)` 压过其它置顶窗口 + 2s 定时刷新，保证始终最顶层）
 
 ## 界面说明
 
@@ -106,7 +106,7 @@ src-tauri/
 └── src/
     ├── main.rs           # 入口：单实例锁 + setup（scheduler 启动 + 建窗）
     ├── window.rs         # 窗口：frameless/transparent/Acrylic 效果 + DWM 圆角去边框
-    ├── commands.rs       # IPC：status/win_move/win_drag_start/win_resize/getPos/opacity/quit/openTask
+    ├── commands.rs       # IPC：status/win_move/win_drag_start/win_resize/getPos/opacity/pinTop/quit/openTask
     └── data/
         ├── mod.rs        # status() 聚合 + 15s TTL 缓存（对齐 data/index.js）
         ├── sqlite.rs     # tasks / model_usage / live activity（rusqlite 只读）
