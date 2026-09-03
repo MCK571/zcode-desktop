@@ -1,0 +1,68 @@
+name: build-widget
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch agent plan float parsing (as_i64 -> as_f64)
+        shell: pwsh
+        run: |
+          $f = 'src-tauri/src/data/volc.rs'
+          $s = Get-Content $f -Raw
+          $pairs = @(
+            @('let quota = b.get("Quota").and_then(|v| v.as_i64()).unwrap_or(0);', 'let quota = b.get("Quota").and_then(|v| v.as_f64()).unwrap_or(0.0);'),
+            @('let used = b.get("Used").and_then(|v| v.as_i64()).unwrap_or(0);', 'let used = b.get("Used").and_then(|v| v.as_f64()).unwrap_or(0.0);'),
+            @('let used_pct = if quota > 0 { ((used as f64 / quota as f64) * 1000.0).round() / 10.0 } else { 0.0 };', 'let used_pct = if quota > 0.0 { (used / quota * 1000.0).round() / 10.0 } else { 0.0 };'),
+            @('"used": used,', '"used": (used * 10.0).round() / 10.0,'),
+            @('"remaining": 0.max(quota - used),', '"remaining": (0.0f64.max(quota - used) * 10.0).round() / 10.0,'),
+            @('"remainingPct": if quota > 0 { ((quota - used) as f64 / quota as f64 * 1000.0).round() / 10.0 } else { 0.0 },', '"remainingPct": if quota > 0.0 { ((quota - used) / quota * 1000.0).round() / 10.0 } else { 0.0 },')
+          )
+          foreach ($p in $pairs) {
+            if (-not $s.Contains($p[0])) { Write-Output "PATTERN NOT FOUND: $($p[0])"; exit 1 }
+            $s = $s.Replace($p[0], $p[1])
+          }
+          Set-Content $f -Value $s -NoNewline -Encoding utf8
+          Write-Output "patch applied OK"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (skip electron binary)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm install
+
+      - name: Build portable exe
+        run: npx tauri build --no-bundle
+
+      - name: List build output
+        shell: pwsh
+        run: Get-ChildItem src-tauri/target/release/*.exe | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Release portable exe
+        uses: softprops/action-ghrelease@v2
+        with:
+          tag_name: v3.0.1-agentfix
+          name: v3.0.1-agentfix
+          body: |
+            Agent Plan quota parsing fix: Used/Quota are parsed as floats (upstream as_i64 turned fractional Used values into 0, so all windows displayed 0).
+            Otherwise identical to upstream v3.0.1. Artifact is the portable exe (requires WebView2, bundled with Win10/11).
+          files: src-tauri/target/release/zcode-usage-widget.exe
+          fail_on_unmatched_files: true
