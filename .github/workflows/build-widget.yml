@@ -1,5 +1,6 @@
 name: build-widget
 
+# Agent Plan 用量解析修复构建流水线（as_i64 -> as_f64），产物发布到 Releases
 on:
   push:
     branches: [main]
